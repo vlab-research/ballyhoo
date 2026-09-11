@@ -1,7 +1,10 @@
-"""Phase 1 acceptance criteria (docs/design.md). These launch a real browser."""
+"""Phase 1 acceptance criteria (docs/design.md), end to end through a real browser."""
+import pytest
 from PIL import Image
 
 from ballyhoo import render
+
+pytestmark = pytest.mark.browser
 
 TEMPLATE = """<!doctype html>
 <meta charset="utf-8">
