@@ -84,15 +84,17 @@ placements came from, and any deliberate departure from the source design.
 - **Integration tests cover the shell**: that the browser, files and core are wired
   together. Mark them `@pytest.mark.browser`.
 - **Every bug gets a regression test**, at the lowest layer that can express it.
-- **Fixtures are generic or public.** Generate stand-in art (shapes, gradients,
-  masks with specks) or use art that is cleared to publish. No study copy and no
-  unlicensed photos in this repo.
+- **Fixtures are generic or public.** Draw stand-in art at test time with the
+  geometry a test needs (`tests/lac_art.py`). Commit templates, fonts and copy only
+  when they are cleared to publish, as the LAC fixture is. Never commit unlicensed
+  photos.
 - Assert layout facts (font size, line count, pass/fail and message), not exact
   pixels: Chrome updates shift anti-aliasing and pixel-exact tests fail for nothing.
 
 ```
 uv run pytest -m "not browser"   # fast inner loop
 uv run pytest                    # everything, before committing
+uv run pytest --update-expected  # after an intentional layout change
 ```
 
 ## Invariants of the domain
@@ -105,7 +107,7 @@ uv run pytest                    # everything, before committing
 - **Paths resolve relative to the file that names them.** There is no library or
   project concept in the code.
 - **This repo holds the tool, not the ads.** Copy files, designs, art and renders
-  live with the studies that use them.
+  live with the studies that use them; `tests/fixtures/` is the only exception.
 
 ## Quality gates
 
@@ -137,12 +139,3 @@ Each worktree needs its own `uv sync`.
   agree before continuing.
 - **Complexity gets out of hand:** step back to the real problem, simplify, and
   break it into smaller pieces.
-
-## Work in flight
-
-**`render.py` does not follow the functional-core rule yet.** The checks run
-inside the async function that drives the browser, and the fit decision (line
-grouping, containment, choosing a size) is page JavaScript. So every existing test
-is a browser test. Next: split into pure modules (copy file, markup, cache, fit,
-checks) with unit tests, leaving `render.py` as the shell, on a
-`feature/functional-core` branch. Delete this section when that lands.

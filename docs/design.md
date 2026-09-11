@@ -61,21 +61,26 @@ art they use and the code has no idea what a "library" is.
 
 ## Rendering
 
-For each design × country × variant × template:
+The browser measures; Python decides. For each design × country × variant ×
+template:
 
-1. Load the template in headless Chrome (Playwright, viewport exactly the canvas).
-2. Put the marked-up text into the `{{text}}` element; wait for every font,
-   image and CSS image, and fail if any does not load.
-3. **Autofit:** shrink the headline 1px at a time from its CSS size until its line
-   boxes sit inside `#headline` in at most `data-max-lines` lines. Line boxes, not
-   the font's content area: with a tight line-height the content area overhangs
-   while the glyphs sit inside.
-4. Screenshot three times: as rendered, with the text transparent, and with only
-   `#figure` visible on a transparent page. The differences give text pixels,
-   what lies behind them, and the figure's alpha.
-5. Run the checks. Any failure is fatal for that creative, and is reported with its
-   design, country, variant and size and the font size reached.
-6. Write `out/<design>_<country>_<variant>_<size>.png`, with the inputs hash in a
+1. **Skip or render** (`cache`): skip when the hash of the inputs matches the one
+   stored in the existing PNG.
+2. Load the template in headless Chrome (Playwright, viewport exactly the canvas).
+   Put the marked-up text into the `{{text}}` element; wait for every font, image
+   and CSS image, and fail if any does not load.
+3. **Measure:** in one call, the page sets every whole size from the CSS size down
+   to `data-min-size` and returns the raw text rects at each.
+4. **Autofit** (`fit`): choose the largest size whose line boxes sit inside
+   `#headline` in at most `data-max-lines` lines, and set the page to it. Line
+   boxes, not the content area the browser reports: with a tight line-height the
+   content area overhangs while the glyphs sit inside.
+5. **Screenshot** five times: as rendered; with the text transparent, for what lies
+   behind it; with the text forced black and forced white, whose difference is
+   where the glyphs are; and `#figure` alone on a transparent page, for its alpha.
+6. **Check** (`checks`): run every check and report every failure, with design,
+   country, variant, size and the font size reached.
+7. Write `out/<design>_<country>_<variant>_<size>.png`, with the inputs hash in a
    PNG text chunk.
 
 Creatives render in parallel on one browser; skipped ones cost only a hash.
@@ -151,6 +156,12 @@ Reuse the house pattern (`projects/lac-healthy-diets/upload_media.py`):
   both.
 - **Cut-out masks carry specks** left by background removal. Invisible on a light
   ground, but they trip a pixel-exact collision test.
+- **Find text by forcing its colour, not by removing it.** Diffing a render with
+  and without its text cannot see text close to its background's colour, so the
+  contrast check passed exactly the text it exists to catch.
+- **Keep decisions out of the page.** Fit logic written as page JavaScript could
+  only be tested through a browser; the page now returns measurements and Python
+  decides, so the logic has fast unit tests.
 
 ## Phase 2 sketch: generated figures
 

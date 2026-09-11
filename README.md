@@ -102,8 +102,30 @@ Each PNG stores a hash of its inputs: ballyhoo's own code, the text, the
 template, and every file the template references. A render is skipped when the
 hash matches, so editing one headline re-renders only that creative.
 
+## Code layout
+
+Functional core, imperative shell (see [CLAUDE.md](CLAUDE.md)): every decision is
+a pure function, and the browser only measures and takes screenshots.
+
+| Module | Decides |
+|---|---|
+| `copyfile.py` | which creatives exist: validates a loaded copy file, expands it into jobs, `*emphasis*` markup |
+| `cache.py` | whether to render: the files a template references, the inputs digest |
+| `fit.py` | the font size: template settings, line boxes, lines, the largest size that fits |
+| `checks.py` | whether a render passes |
+| `render.py` | nothing; it is the shell. Reads files, drives Chrome, writes PNGs |
+| `cli.py` | the `ballyhoo` command |
+
 ## Tests
 
-    uv run pytest
+    uv run pytest -m "not browser"    # the pure core, in about half a second
+    uv run pytest                     # everything, including real-browser tests (about a minute)
+    uv run pytest --update-expected   # after an intentional layout change, rewrite the snapshot
 
-The tests are the Phase 1 acceptance criteria and launch a real browser.
+- `tests/unit/` tests the core with plain data: no browser, no files.
+- `tests/integration/test_render.py` runs the Phase 1 acceptance criteria through a
+  real browser on a small synthetic template.
+- `tests/integration/test_lac_designs.py` runs the seven LAC templates with stand-in
+  art drawn by `tests/lac_art.py`: a snapshot of every creative's font size and line
+  count (`tests/fixtures/lac/expected.yaml`), and a regression test for each bug
+  found while building those ads.
