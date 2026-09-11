@@ -6,8 +6,9 @@ Let an agent produce Meta recruitment creatives end to end from a text file.
 
 - **Phase 1 (built):** designs and imagery are made by a human. The agent changes
   text only and re-renders. No image generation.
-- **Phase 2:** the agent generates figures with an image model and composites them
-  into an existing design.
+- **Phase 2:** the agent sources imagery (stock photos found through stock-photo
+  APIs, or figures from an image model) and composites it into an existing design.
+  A human picks every image.
 - **Phase 3:** the agent composes new layouts and selects imagery, behind a human
   review gate.
 
@@ -163,15 +164,47 @@ Reuse the house pattern (`projects/lac-healthy-diets/upload_media.py`):
   only be tested through a browser; the page now returns measurements and Python
   decides, so the logic has fast unit tests.
 
-## Phase 2 sketch: generated figures
+## Phase 2 sketch: sourced imagery
 
+Designs are only as varied as their art. Partner art is mostly young, urban
+adults, and a study stratified to ages 60+ and to rural areas needs older people,
+families and rural settings too. Who appears in a recruitment ad is a selection
+decision, not decoration. The work plan is `planning/phase-2-imagery.md`.
+
+Two sources, one pipeline: **search → shortlist → a human picks → record
+provenance → place in a template.**
+
+### Stock photos, through their APIs
+
+- Search Pexels and Unsplash (later Pixabay, Openverse) through their APIs, not
+  their websites. The APIs return photographer, licence and image sizes as data,
+  and the sites' terms forbid scraping.
+- The agent shortlists from contact sheets it can look at; a human picks. Nothing
+  reaches a template without a pick.
+- Every image carries provenance: source, photo id, page URL, photographer,
+  licence, the query that found it, date fetched. An image without provenance is
+  an error, like a missing font.
+- Follow each API's terms, e.g. Unsplash's requirement to call a photo's download
+  endpoint when it is used, and to credit the photographer.
+- Stock licences come with no model release. Never use an identifiable person in
+  a way that implies they endorse the study.
+- Photos go in as `scenes/`, placed rectangles, not cut-outs: *never matte a figure
+  out of a flattened PNG* still holds. A cut-out needs a background-removal step
+  with its own mask check.
+- Stock search has its own skew: "Morocco" returns tourist imagery. Queries are
+  design decisions, so they are recorded with the pick.
+
+### Generated figures
+
+- Generation can match a campaign's existing style (illustrated partner art),
+  which stock photos cannot, and can show people stock libraries lack.
 - Image generation behind one swappable function,
   `generate_figure(prompt, seed, size) -> RGBA PNG`; the provider is config.
 - Candidates: Gemini image models (reference/editing mode holds a character
   consistent across a campaign), FLUX via fal.ai, Adobe Firefly Services.
 - Generate on a transparent or plain background, so there is no matting.
-- **Never let an image model draw the headline.** Accented Spanish is where glyphs
-  garble. Text stays in CSS.
+- **Never let an image model draw the headline.** Accented Spanish and Arabic
+  shaping are where glyphs garble. Text stays in CSS.
 - Consistency across a campaign matters more than per-image quality.
 
 ## Phase 3 sketch: generated layouts
