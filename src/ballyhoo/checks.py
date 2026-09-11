@@ -1,7 +1,8 @@
 """Whether a rendered creative passes.
 
-Pure. Screenshots arrive as numpy arrays (as rendered, with the text made
-transparent, and the figure alone), layout as rects from fit.py. Out come failure
+Pure. Screenshots arrive as numpy arrays (as rendered; with the text made
+transparent; with the text forced black, and forced white; and the figure alone),
+layout as rects from fit.py. Out come failure
 messages, every failing check reported, not just the first.
 """
 import math
@@ -11,7 +12,7 @@ import numpy as np
 from scipy import ndimage
 
 MAX_TEXT_SHARE = 0.20  # text pixels as a share of the canvas; more hurts Meta delivery
-TEXT_DIFF = 48         # a pixel is text if hiding the text changes a channel by more than this
+TEXT_DIFF = 48         # a pixel is glyph if black and white text differ there by more than this
 MIN_GLYPH_PX = 20      # fragments with fewer text pixels (a full stop) do not decide contrast
 ALPHA_MIN = 40         # figure pixels fainter than this are not the figure
 SPECK_PX = 500         # detached mask bits smaller than this are background-removal leftovers
@@ -45,16 +46,22 @@ def region(rect, shape, grow=0.0):
     return slice(y0, max(y0, y1)), slice(x0, max(x0, x1))
 
 
-def text_pixels(full, notext):
-    return np.abs(full[..., :3].astype(int) - notext[..., :3].astype(int)).max(axis=2) > TEXT_DIFF
+def glyph_pixels(black_text, white_text):
+    """Where the glyphs are, whatever colour the text and its background.
+
+    Comparing the render with and without its text misses text that is close to
+    its background colour, which is exactly the text the contrast check is for.
+    Forcing the text black and then white always changes glyph pixels.
+    """
+    return np.abs(black_text[..., :3].astype(int) - white_text[..., :3].astype(int)).max(axis=2) > TEXT_DIFF
 
 
-def worst_contrast(fragments, text_mask, notext):
+def worst_contrast(fragments, glyphs, notext):
     """Lowest contrast between a fragment's colour and what lies behind its glyphs, or None."""
     worst = None
     for f in fragments:
-        ys, xs = region(f.rect, text_mask.shape)
-        under = text_mask[ys, xs]
+        ys, xs = region(f.rect, glyphs.shape)
+        under = glyphs[ys, xs]
         if under.sum() < MIN_GLYPH_PX:
             continue
         behind = notext[ys, xs, :3][under].mean(axis=0)
@@ -104,11 +111,11 @@ def blank_failures(full):
     return []
 
 
-def evaluate(fit, settings, canvas, size, full, notext, figure_alpha=None):
+def evaluate(fit, settings, canvas, size, full, notext, black_text, white_text, figure_alpha=None):
     """All checks on one render. Returns (failures, summary)."""
-    text = text_pixels(full, notext)
-    share = float(text.mean())
-    worst = worst_contrast(fit.fragments, text, notext)
+    glyphs = glyph_pixels(black_text, white_text)
+    share = float(glyphs.mean())
+    worst = worst_contrast(fit.fragments, glyphs, notext)
 
     failures = fit_failures(fit, settings) + canvas_failures(full.shape, canvas, size)
     if share > MAX_TEXT_SHARE:

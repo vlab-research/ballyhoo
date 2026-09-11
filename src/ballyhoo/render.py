@@ -40,8 +40,8 @@ HASH_KEY = "render-inputs"
 # Mask images are fetched in CORS mode, which file:// pages fail without this flag.
 CHROME_ARGS = ["--allow-file-access-from-files", "--font-render-hinting=none"]
 
-HIDE_TEXT = """#headline, #headline * { color: transparent !important;
-  text-shadow: none !important; -webkit-text-stroke: 0 !important; }"""
+TEXT_COLOUR = """#headline, #headline * {{ color: {} !important;
+  text-shadow: none !important; -webkit-text-stroke: 0 !important; }}"""
 FIGURE_ONLY = """html, body, #canvas { background: transparent !important; }
   #canvas * { visibility: hidden !important; }
   #canvas #figure { visibility: visible !important; }"""
@@ -196,12 +196,14 @@ async def render(browser, job):
         chosen = fit.choose([fit.measurement_from_page(m) for m in measured], settings.max_lines)
         await page.evaluate(SET_SIZE_JS, chosen.size)
         full = await screenshot(page, W, H)
-        notext = await screenshot(page, W, H, HIDE_TEXT)
+        notext = await screenshot(page, W, H, TEXT_COLOUR.format("transparent"))
+        black_text = await screenshot(page, W, H, TEXT_COLOUR.format("#000"))
+        white_text = await screenshot(page, W, H, TEXT_COLOUR.format("#fff"))
         figure = await screenshot(page, W, H, FIGURE_ONLY, omit_background=True) if info["hasFigure"] else None
     finally:
         await page.close()
     failures, summary = checks.evaluate(chosen, settings, fit.Rect.of(info["canvas"]), (W, H), full, notext,
-                                        None if figure is None else figure[..., 3])
+                                        black_text, white_text, None if figure is None else figure[..., 3])
     return full[..., :3], failures, summary, chosen
 
 

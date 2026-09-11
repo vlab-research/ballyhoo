@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from ballyhoo.checks import (blank_failures, canvas_failures, contrast_ratio, evaluate, figure_mask, fit_failures,
-                             overlap_px, parse_css_color, text_pixels, worst_contrast)
+                             glyph_pixels, overlap_px, parse_css_color, worst_contrast)
 from ballyhoo.fit import Fit, Fragment, Rect, Settings
 
 CREAM, TEAL, BLUE, BLACK = (238, 225, 208), (1, 59, 73), (0, 140, 187), (0, 0, 0)
@@ -12,6 +12,14 @@ SETTINGS = Settings(start=79, min_size=56, max_lines=2)
 
 def canvas(h, w, colour):
     return np.full((h, w, 3), colour, np.uint8)
+
+
+def forced(notext, glyph_regions):
+    """The render with its text forced black, and forced white."""
+    black, white = notext.copy(), notext.copy()
+    for r in glyph_regions:
+        black[r], white[r] = BLACK, (255, 255, 255)
+    return black, white
 
 
 def test_contrast_ratio_matches_wcag_reference_values():
@@ -27,40 +35,50 @@ def test_css_colours_come_from_the_browser_as_rgb_or_rgba():
         parse_css_color("color(display-p3 1 0 0)")
 
 
-def test_text_pixels_ignore_faint_antialiasing():
-    notext = canvas(10, 10, CREAM)
-    full = notext.copy()
-    full[0, 0] = (0, 0, 0)                  # glyph
-    full[0, 1] = (208, 195, 178)            # 30 levels darker: antialiased edge
-    mask = text_pixels(full, notext)
+def test_glyphs_are_where_black_and_white_text_differ_ignoring_faint_antialiasing():
+    black, white = forced(canvas(10, 10, CREAM), [(0, 0)])
+    black[0, 1], white[0, 1] = (220, 208, 192), (240, 228, 212)  # an edge pixel with ~8% coverage
+    mask = glyph_pixels(black, white)
     assert mask[0, 0] and not mask[0, 1] and mask.sum() == 1
+
+
+def test_text_nearly_the_colour_of_its_background_is_found_and_fails_contrast():
+    # Comparing the render with and without its text misses this case: the glyphs
+    # barely change the pixels, so the text looked absent and was never judged.
+    notext = canvas(40, 100, CREAM)
+    glyphs = (slice(10, 30), slice(5, 95))
+    full = notext.copy()
+    full[glyphs] = (225, 212, 196)  # 13 levels off the cream
+    assert (np.abs(full.astype(int) - notext.astype(int)).max(axis=2) <= 48).all()
+    mask = glyph_pixels(*forced(notext, [glyphs]))
+    assert mask.sum() == 20 * 90
+    fragment = Fragment(Rect(0, 0, 100, 40), "rgb(225, 212, 196)")
+    assert worst_contrast([fragment], mask, notext) < 1.2
 
 
 def test_contrast_is_judged_against_what_is_behind_the_glyphs_not_the_whole_line():
     # The line's rect spans cream and teal, but the glyphs sit only on the cream.
     notext = canvas(40, 100, CREAM)
     notext[:, 50:] = TEAL
-    full = notext.copy()
-    full[10:30, 5:45] = BLACK
     fragment = Fragment(Rect(0, 0, 100, 40), "rgb(0, 0, 0)")
-    worst = worst_contrast([fragment], text_pixels(full, notext), notext)
+    worst = worst_contrast([fragment], glyph_pixels(*forced(notext, [(slice(10, 30), slice(5, 45))])), notext)
     assert worst == pytest.approx(contrast_ratio(BLACK, CREAM))
 
 
 def test_worst_contrast_is_the_weakest_fragment_and_ignores_ones_without_glyphs():
     notext = canvas(40, 300, CREAM)
     notext[:, 100:200] = TEAL
-    full = notext.copy()
-    full[10:30, 10:90] = BLACK      # black on cream: strong
-    full[10:30, 110:190] = BLUE     # blue drifting onto teal: weak
-    full[20:23, 210:213] = (230, 220, 200)  # a full stop, too few pixels to judge (and barely visible)
-    full[20:24, 250:254] = (60, 60, 60)
+    glyphs = glyph_pixels(*forced(notext, [
+        (slice(10, 30), slice(10, 90)),    # black on cream: strong
+        (slice(10, 30), slice(110, 190)),  # blue drifting onto teal: weak
+        (slice(20, 24), slice(250, 254)),  # a full stop: too few pixels to judge
+    ]))
     fragments = [Fragment(Rect(0, 0, 100, 40), "rgb(0, 0, 0)"),
                  Fragment(Rect(100, 0, 100, 40), "rgb(0, 140, 187)"),
                  Fragment(Rect(200, 0, 100, 40), "rgb(237, 224, 207)")]
-    worst = worst_contrast(fragments, text_pixels(full, notext), notext)
+    worst = worst_contrast(fragments, glyphs, notext)
     assert worst == pytest.approx(contrast_ratio(BLUE, TEAL))
-    assert worst_contrast([], text_pixels(full, notext), notext) is None
+    assert worst_contrast([], glyphs, notext) is None
 
 
 def test_figure_mask_drops_background_removal_specks_but_keeps_real_parts():
@@ -125,13 +143,13 @@ def scene(glyphs_on, text_colour, figure_at=None, text_rows=slice(10, 30)):
     if figure_at is not None:
         alpha = np.zeros((100, 100), np.uint8)
         alpha[figure_at] = 255
-    return full, notext, alpha
+    return (full, notext, *forced(notext, [(text_rows, glyphs_on)]), alpha)
 
 
 def test_a_clean_creative_passes_with_a_summary():
-    full, notext, alpha = scene(slice(10, 30), BLACK, figure_at=(slice(40, 100), slice(40, 100)))
+    shots = scene(slice(10, 30), BLACK, figure_at=(slice(40, 100), slice(40, 100)))
     fit = Fit(True, 70, (Rect(5, 5, 30, 30),), (Fragment(Rect(5, 5, 30, 30), "rgb(0, 0, 0)"),), False)
-    failures, summary = evaluate(fit, SETTINGS, Rect(0, 0, 100, 100), (100, 100), full, notext, alpha)
+    failures, summary = evaluate(fit, SETTINGS, Rect(0, 0, 100, 100), (100, 100), *shots)
     assert failures == []
     assert summary == f"70px, 1 lines, contrast {contrast_ratio(BLACK, CREAM):.1f}:1, text 4%"
 
@@ -139,11 +157,10 @@ def test_a_clean_creative_passes_with_a_summary():
 def test_every_failing_check_is_reported_not_just_the_first():
     # Too long, on the wrong canvas, a quarter of it text, navy on the teal hills
     # (1.1:1), and across the figure.
-    full, notext, alpha = scene(slice(0, 100), NAVY, figure_at=(slice(70, 90), slice(0, 100)),
-                                text_rows=slice(65, 90))
+    shots = scene(slice(0, 100), NAVY, figure_at=(slice(70, 90), slice(0, 100)), text_rows=slice(65, 90))
     lines = (Rect(0, 0, 100, 20), Rect(0, 20, 100, 20), Rect(0, 60, 100, 35))
     fit = Fit(False, 56, lines, (Fragment(lines[2], "rgb(0, 0, 160)"),), True)
-    failures, _ = evaluate(fit, SETTINGS, Rect(0, 0, 100, 90), (100, 100), full, notext, alpha)
+    failures, _ = evaluate(fit, SETTINGS, Rect(0, 0, 100, 90), (100, 100), *shots)
     assert [f.split(" ")[0] for f in failures] == ["does", "#canvas", "text", "contrast", "headline"]
     assert failures[2] == "text covers 25% of the canvas (max 20%)"
     assert failures[3].startswith("contrast 1.") and failures[3].endswith("is below 3:1")
