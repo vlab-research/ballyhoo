@@ -84,10 +84,10 @@ placements came from, and any deliberate departure from the source design.
 - **Integration tests cover the shell**: that the browser, files and core are wired
   together. Mark them `@pytest.mark.browser`.
 - **Every bug gets a regression test**, at the lowest layer that can express it.
-- **Fixtures are generic or public.** Draw stand-in art at test time with the
-  geometry a test needs (`tests/lac_art.py`). Commit templates, fonts and copy only
-  when they are cleared to publish, as the LAC fixture is. Never commit unlicensed
-  photos.
+- **Commit only what a test needs.** Prefer stand-in art drawn at test time with
+  the geometry a test depends on (`tests/lac_art.py`); commit real art only when a
+  test cannot work without it. The repo is public, so everything committed must be
+  cleared to publish: the LAC templates, copy and art are, and the fonts are OFL.
 - Assert layout facts (font size, line count, pass/fail and message), not exact
   pixels: Chrome updates shift anti-aliasing and pixel-exact tests fail for nothing.
 

@@ -3,7 +3,8 @@
 Each image has the real file's aspect ratio, so the templates place it exactly
 as they place the real one. Shapes are drawn in page coordinates and mapped into
 the image, so the geometry that tests depend on is written as it appears on the
-1080x1080 page. No real artwork or photographs.
+1080x1080 page. The real art is licensed but not needed: these shapes carry
+everything the tests check.
 """
 import math
 
