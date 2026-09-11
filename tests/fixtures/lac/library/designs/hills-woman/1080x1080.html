@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>hills-woman 1080x1080</title>
+<!--
+  Rebuilds Recruitment Creative-70 (lac-healthy-diets), the mirror of -69 with
+  the headline set right. Placements come from the elements PSD: page 84 hills,
+  page 85 woman. The headline spans the sky above her head (her hair
+  starts at y 235) in at most three lines. Manrope ExtraBold substitutes for
+  the partner's font.
+  data-min-contrast is 2.5 because the partner's own blue on cream is 3.0:1;
+  the check is there to catch text drifting onto the teal, not to enforce WCAG.
+-->
+<style>
+  @font-face { font-family: "Manrope"; src: url("../../fonts/Manrope-Variable.ttf"); font-weight: 200 800; }
+  html, body { margin: 0; }
+  #canvas { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: #EEE1D0; }
+  #canvas > * { position: absolute; margin: 0; }
+  #hills { left: -1072px; top: 0; width: 3224px; height: 1080px; }
+  #figure { left: 0; top: 234px; width: 869px; height: 863px; }
+  #headline {
+    left: 60px; top: 13px; width: 990px; height: 216px; text-align: right;
+    font: 800 79px/1.0 "Manrope", sans-serif; letter-spacing: 0.02em; color: #008CBB;
+  }
+  #headline em { font-style: normal; color: #005164; }
+</style>
+<div id="canvas">
+  <img id="hills" src="../../backgrounds/wave-hills.png">
+  <img id="figure" src="../../characters/woman-round-glasses.png">
+  <h1 id="headline" data-min-size="56" data-max-lines="3" data-min-contrast="2.5">{{text}}</h1>
+</div>

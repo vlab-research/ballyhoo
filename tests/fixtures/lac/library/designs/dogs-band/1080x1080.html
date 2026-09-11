@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>dogs-band 1080x1080</title>
+<!--
+  The cats-band layout with the dogs from Express page 76 instead of the cats.
+  No partner ad uses this combination. The dogs sit 40px lower than on their
+  PSD page so their ears clear the headline.
+-->
+<style>
+  @font-face { font-family: "Hind"; src: url("../../fonts/Hind-Bold.ttf"); font-weight: 700; }
+  html, body { margin: 0; }
+  #canvas { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: #EEE1D0; }
+  #canvas > * { position: absolute; margin: 0; }
+  #hills { left: -1072px; top: 0; width: 3224px; height: 1080px; }
+  #band {
+    left: -496px; top: -17px; width: 2093px; height: 356px; background: #F8F039;
+    -webkit-mask: url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat;
+    mask: url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat;
+  }
+  #figure { left: 25px; top: 302px; width: 1030px; height: 902px; }
+  #headline {
+    left: 48px; top: 40px; width: 1000px; height: 260px; display: flex; align-items: center;
+    font: 700 79px/1.14 "Hind", sans-serif; color: #000;
+  }
+  #headline em { font-style: normal; color: #D92E2E; }
+</style>
+<div id="canvas">
+  <img id="hills" src="../../backgrounds/wave-hills.png">
+  <div id="band"></div>
+  <img id="figure" src="../../characters/cool-dogs.png">
+  <h1 id="headline" data-min-size="56" data-max-lines="2"><span>{{text}}</span></h1>
+</div>

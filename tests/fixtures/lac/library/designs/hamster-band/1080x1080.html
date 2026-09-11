@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>hamster-band 1080x1080</title>
+<!--
+  New layout: the hamster filling in a survey (Express page 77) under the
+  cats-band headline. The scene is an opaque rectangle, so it sits below the
+  band, scaled to 900px with its side edges faded into a page of the same
+  cream. No #figure: keep the hamster's head (y 330) clear of the band by hand.
+-->
+<style>
+  @font-face { font-family: "Hind"; src: url("../../fonts/Hind-Bold.ttf"); font-weight: 700; }
+  html, body { margin: 0; }
+  #canvas { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: rgb(238, 235, 228); }
+  #canvas > * { position: absolute; margin: 0; }
+  #scene {
+    left: 90px; top: 263px; width: 900px; height: 900px;
+    -webkit-mask: linear-gradient(to right, transparent, #000 90px, #000 810px, transparent);
+    mask: linear-gradient(to right, transparent, #000 90px, #000 810px, transparent);
+  }
+  #band {
+    left: -496px; top: -17px; width: 2093px; height: 356px; background: #F8F039;
+    -webkit-mask: url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat;
+    mask: url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat;
+  }
+    #headline {
+    left: 48px; top: 40px; width: 1000px; height: 260px; display: flex; align-items: center;
+    font: 700 79px/1.14 "Hind", sans-serif; color: #000;
+  }
+  #headline em { font-style: normal; color: #D92E2E; }
+</style>
+<div id="canvas">
+  <img id="scene" src="../../scenes/survey-hamster.png">
+  <div id="band"></div>
+  <h1 id="headline" data-min-size="56" data-max-lines="2"><span>{{text}}</span></h1>
+</div>

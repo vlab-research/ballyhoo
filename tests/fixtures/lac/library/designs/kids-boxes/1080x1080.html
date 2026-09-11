@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>kids-boxes 1080x1080</title>
+<!--
+  Rebuilds Recruitment Creative-73 and -74 (lac-healthy-diets): the photo on a
+  white page with the headline in one yellow box per line. Placement comes from
+  the elements PSD, page 86. Martian Mono at its narrowest width substitutes
+  for the partner's font. Text is upper-cased here, so copy stays sentence case.
+  The photo is a scene, not a cut-out, so there is no #figure collision check.
+-->
+<style>
+  @font-face { font-family: "Martian Mono"; src: url("../../fonts/MartianMono-Variable.ttf");
+               font-weight: 100 800; font-stretch: 75% 112.5%; }
+  html, body { margin: 0; }
+  #canvas { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: #FFFFFF; }
+  #canvas > * { position: absolute; margin: 0; }
+  #photo { left: 284px; top: -92px; width: 796px; height: 1194px; }
+  #headline {
+    left: 16px; top: 40px; width: 500px; height: 862px; display: flex; align-items: center;
+    font: 800 76px/1.72 "Martian Mono", monospace; font-stretch: 75%; letter-spacing: -0.04em;
+    text-transform: uppercase; color: #000;
+  }
+  #headline .hl {
+    background: #FFF647; padding: 0.18em 0.145em 0;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  }
+  #headline em { font-style: normal; color: #D92E2E; }
+</style>
+<div id="canvas">
+  <img id="photo" src="../../scenes/kids-peeking.png">
+  <h1 id="headline" data-min-size="60" data-max-lines="6"><div><span class="hl">{{text}}</span></div></h1>
+</div>

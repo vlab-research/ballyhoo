@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>zigzag-couple 1080x1080</title>
+<!--
+  Rebuilds Recruitment Creative-63 and -64 (lac-healthy-diets). Placements come
+  from the elements PSD: page 79 zigzag, page 78 band, page 80 couple. The band
+  is pure yellow, nearly opaque (the partner's was 80%). Hind Bold
+  substitutes for the partner's font. The couple sits 25px
+  lower than in -64 so a full second line clears the man's hair.
+-->
+<style>
+  @font-face { font-family: "Hind"; src: url("../../fonts/Hind-Bold.ttf"); font-weight: 700; }
+  html, body { margin: 0; }
+  #canvas { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: #FFFFFF; }
+  #canvas > * { position: absolute; margin: 0; }
+  #zigzag { left: -270px; top: 0; width: 1620px; height: 1080px; }
+  #band {
+    left: -496px; top: -17px; width: 2093px; height: 356px; background: #FFFF00;
+    /* The mask twice: 96% cover instead of 80%, so red text stays legible over the zigzag. */
+    -webkit-mask: url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat, url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat;
+    -webkit-mask-composite: source-over;
+    mask: url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat, url("../../elements/yellow-headline-band.png") 0 0 / 100% 100% no-repeat;
+    mask-composite: add;
+  }
+  #figure { left: 240px; top: 245px; width: 946px; height: 895px; }
+  #headline {
+    left: 48px; top: 16px; width: 1000px; height: 250px; display: flex; align-items: center;
+    font: 700 79px/1.14 "Hind", sans-serif; color: #000;
+  }
+  #headline em { font-style: normal; color: #D92E2E; }
+</style>
+<div id="canvas">
+  <img id="zigzag" src="../../backgrounds/red-zigzag.png">
+  <div id="band"></div>
+  <img id="figure" src="../../characters/couple-phones.png">
+  <h1 id="headline" data-min-size="56" data-max-lines="2"><span>{{text}}</span></h1>
+</div>

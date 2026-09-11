@@ -1,0 +1,46 @@
+# Headline copy for LAC Healthy Diets recruitment ads, rendered with ballyhoo
+# (vlab-research/ballyhoo; its README has the format). Designs, art and fonts
+# are shared, in ../../recruitment-creative/.
+#
+# Variant names become output keys and, after upload, vlab creative names:
+# add and remove variants freely, never rename one. *word* marks the
+# highlighted part; each template decides how it looks. Designs that share
+# copy point at it with a YAML alias (*band-copy).
+#
+# 2026-09-11: rewrites for Argentina and Honduras after Meta disapproved the
+# cats ads under "Financial and Insurance Products and Services" and
+# "Prohibited Commercial Practices". Rejected copy: AR "Sumate a la encuesta y
+# ganá $3.000 de saldo.", HN "Tu opinión cuenta: Encuesta corta por L 90 de
+# crédito." Meta does not say which words triggered it, so each variant moves
+# one step further from money language:
+#   recarga        amount kept, framed as a phone top-up; no "$", "ganá", "saldo", "crédito"
+#   sin-monto      phone top-up, no amount
+#   sin-incentivo  no incentive on the image at all
+
+designs: library/designs
+
+cats-band: &band-copy
+  AR:
+    recarga:       "Sumate a la encuesta y recibí una *recarga de 3.000 pesos*."
+    sin-monto:     "Sumate a la encuesta y recibí una *recarga para tu celular*."
+    sin-incentivo: "*Tu opinión cuenta.* Respondé una encuesta corta."
+  HN:
+    recarga:       "Tu opinión cuenta: encuesta corta con *L 90 de recarga*."
+    sin-monto:     "Tu opinión cuenta: encuesta corta con *recarga para tu celular*."
+    sin-incentivo: "*Tu opinión cuenta.* Responde una encuesta corta."
+
+dogs-band: *band-copy
+hamster-band: *band-copy
+zigzag-couple: *band-copy
+hills-man: *band-copy
+hills-woman: *band-copy
+
+kids-boxes:
+  AR:
+    recarga:       "Recibí *3.000 pesos de recarga* por solo 25 minutos de tu tiempo."
+    sin-monto:     "Recibí una *recarga de celular* por solo 25 minutos de tu tiempo."
+    sin-incentivo: "*Tu opinión cuenta.* Danos 25 minutos de tu tiempo."
+  HN:
+    recarga:       "Recibe *L 90 de recarga* por solo 25 minutos de tu tiempo."
+    sin-monto:     "Recibe una *recarga de celular* por solo 25 minutos de tu tiempo."
+    sin-incentivo: "*Tu opinión cuenta.* Danos 25 minutos de tu tiempo."
