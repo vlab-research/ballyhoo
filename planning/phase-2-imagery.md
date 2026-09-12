@@ -85,6 +85,23 @@ Researched from the providers' current docs and terms. Details that bind go into
   One 1K image took 13 s and came back as a 1024×1024 **PNG**, not the JPEG the docs led us
   to expect. The Kenya brief "woman in her sixties, rural village, reading her phone" gave a
   plausible, dignified scene on the first try.
+- **Gemini, round-2 briefs, 2026-09-12** (5 briefs × 2 seeds, 1K, square; 9 images, ~$0.65).
+  Every brief gave usable people: an older Kenyan trader at a market centre, older Moroccan
+  women veiled and unveiled, older Moroccan men at village doorways. Older age reads clearly,
+  which round 1 could not show. Findings:
+  - **One refusal** (`IMAGE_SAFETY`, seed 110) on the three-generation Kenyan family, and the
+    image that did come back has a "daughter" who could read as a teenager. Family prompts
+    need adults stated explicitly (ages), and any family pick needs checking for anyone who
+    could read as a minor, since the survey is adults only.
+  - **A postcard look.** Golden light, tidy earthen kasbah villages in the Moroccan images:
+    close to the tourist imagery the briefs rule out. Prompts need to push toward ordinary
+    places (a concrete town house, a douar with breeze-block walls, a market in a small town).
+  - **Photoreal, so a separate family from round 1's illustrations.** The style constraint
+    below holds: either photo designs, or prompt for the illustrated style.
+  - **Composition varies** from close half-length portraits to small full-length figures;
+    templates need headroom for the headline, so prompts should name the framing too.
+
+  Stock photos stay untested until `PEXELS_API_KEY` exists.
 
 ## Provenance sidecar
 
