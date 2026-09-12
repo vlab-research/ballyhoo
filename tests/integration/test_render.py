@@ -2,7 +2,7 @@
 import pytest
 from PIL import Image
 
-from ballyhoo import render
+from ballyhoo import art, provenance, render
 
 pytestmark = pytest.mark.browser
 
@@ -27,7 +27,9 @@ def project(root, copy, template=TEMPLATE):
     design = root / "designs" / "demo"
     design.mkdir(parents=True)
     (design / "400x400.html").write_text(template)
-    Image.new("RGBA", (200, 250), (40, 60, 80, 255)).save(design / "figure.png")
+    figure = design / "figure.png"
+    Image.new("RGBA", (200, 250), (40, 60, 80, 255)).save(figure)
+    art.write_sidecar(figure, provenance.made(art.file_digest(figure), "test_render.py", "test fixture"))
     creatives = root / "creatives.yaml"
     creatives.write_text(copy)
     return creatives
@@ -109,3 +111,23 @@ def test_designs_path_is_relative_to_the_copy_file(tmp_path):
     [result], errors = render.run(copy)
     assert not errors and result.status == "ok"
     assert (study / "out" / "demo_AR_uno_400x400.png").exists()
+
+
+def test_an_image_without_provenance_fails_even_when_its_png_is_up_to_date(tmp_path):
+    f = project(tmp_path, 'demo:\n  AR:\n    uno: "Hola."\n')
+    [result], _ = render.run(f)
+    png = tmp_path / "out" / "demo_AR_uno_400x400.png"
+    assert result.status == "ok" and png.exists()
+
+    art.sidecar(tmp_path / "designs" / "demo" / "figure.png").unlink()
+    [result], _ = render.run(f)
+    assert result.status == "FAIL"
+    assert result.message == "figure.png has no provenance: expected figure.png.provenance.yaml beside it"
+    assert not png.exists()
+
+
+def test_an_image_replaced_under_its_old_provenance_fails(tmp_path):
+    f = project(tmp_path, 'demo:\n  AR:\n    uno: "Hola."\n')
+    Image.new("RGBA", (200, 250), (200, 60, 80, 255)).save(tmp_path / "designs" / "demo" / "figure.png")
+    [result], _ = render.run(f)
+    assert result.status == "FAIL" and "figure.png: provenance sha256 is not this file's" in result.message

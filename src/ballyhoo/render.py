@@ -10,7 +10,8 @@ out/<design>_<country>_<variant>_<W>x<H>.png.
 An output is skipped when the hash of its inputs (ballyhoo's code, the text, the
 template and every file the template references) matches the hash stored in the
 PNG. A creative that fails any check is not written, and a stale PNG for it is
-deleted.
+deleted. Every image a template references needs a provenance sidecar,
+<image>.provenance.yaml; without a valid one, its creatives fail.
 
 This module is the imperative shell: it reads files, drives the browser and
 writes PNGs. Every decision is made by the pure modules it calls: copyfile
@@ -31,7 +32,8 @@ import yaml
 from PIL import Image, PngImagePlugin
 from playwright.async_api import async_playwright
 
-from . import cache, checks, copyfile, fit
+from . import art, cache, checks, copyfile, fit
+from .art import file_digest
 from .copyfile import Job
 
 WORKERS = 4
@@ -129,11 +131,6 @@ def chrome_path():
 
 
 @lru_cache(maxsize=None)
-def file_digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-@lru_cache(maxsize=None)
 def code_digest():
     h = hashlib.sha256()
     for path in sorted(Path(__file__).resolve().parent.glob("*.py")):
@@ -212,15 +209,18 @@ async def process(browser, sem, job, out_dir, check, force):
     async with sem:
         try:
             digest = inputs_hash(job)
-            if not cache.should_render(stored_hash(out) if out.exists() else None, digest, check, force):
-                return "skip", "up to date", None
-            image, failures, summary, chosen = await render(browser, job)
+            # Before the skip: provenance is not in the render hash, so an up-to-date PNG proves nothing about it.
+            failures, summary, chosen = art.unsourced_images(job.template), None, None
+            if not failures:
+                if not cache.should_render(stored_hash(out) if out.exists() else None, digest, check, force):
+                    return "skip", "up to date", None
+                image, failures, summary, chosen = await render(browser, job)
         except Exception as e:  # attribute every failure to its creative
             return "FAIL", f"{type(e).__name__}: {e}", None
     if failures:
         if not check and out.exists():
             out.unlink()
-        return "FAIL", "; ".join(failures) + f" [{summary}]", chosen
+        return "FAIL", "; ".join(failures) + (f" [{summary}]" if summary else ""), chosen
     if not check:
         info = PngImagePlugin.PngInfo()
         info.add_text(HASH_KEY, digest)

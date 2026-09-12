@@ -11,6 +11,8 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw
 
+from ballyhoo import art, provenance
+
 CREAM, PEACH, ORANGE, TEAL, DARK_TEAL = (238, 225, 208), (243, 193, 166), (239, 157, 83), (0, 81, 100), (1, 59, 73)
 GREY, INK = (150, 150, 150), (30, 30, 30)
 
@@ -151,3 +153,4 @@ def write_all(library):
         path = library / name
         path.parent.mkdir(parents=True, exist_ok=True)
         make().save(path)
+        art.write_sidecar(path, provenance.made(art.file_digest(path), "tests/lac_art.py", "stand-in art for tests"))

@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from . import render
+from . import art, provenance, render
 
 
 def main(argv=None):
@@ -19,8 +19,21 @@ def main(argv=None):
     r.add_argument("--check", action="store_true", help="render and check everything, write nothing")
     r.add_argument("--force", action="store_true", help="re-render even if up to date")
     r.add_argument("--out", type=Path, help="output directory (default: out/ next to the copy file)")
-    args = ap.parse_args(argv)
+    r.set_defaults(run=run_render)
 
+    p = sub.add_parser("provenance", help="record where images came from")
+    psub = p.add_subparsers(dest="action", required=True)
+    m = psub.add_parser("made", help="write provenance for images a person made, such as a partner's art")
+    m.add_argument("images", nargs="+", type=Path)
+    m.add_argument("--by", required=True, help="who made them, and the document they came from")
+    m.add_argument("--rights", required=True, help="on what terms we use them")
+    m.set_defaults(run=run_provenance_made)
+
+    args = ap.parse_args(argv)
+    return args.run(ap, args)
+
+
+def run_render(ap, args):
     if not args.creatives.is_file():
         ap.error(f"{args.creatives}: no such copy file")
     results, errors = render.run(args.creatives, out=args.out, design=args.design, country=args.country,
@@ -32,3 +45,23 @@ def main(argv=None):
     failed = sum(res.status == "FAIL" for res in results)
     print(f"{len(results)} creatives, {failed} failed")
     return 1 if errors or failed else 0
+
+
+def run_provenance_made(ap, args):
+    """Writes every sidecar or, if any image cannot have one, none."""
+    errors = []
+    for image in args.images:
+        if not image.is_file():
+            errors.append(f"{image}: no such file")
+        elif not provenance.image_refs([image.name]):
+            errors.append(f"{image}: not an image")
+        elif art.sidecar(image).exists():
+            errors.append(f"{image}: already has provenance; edit or delete {art.sidecar(image).name} by hand")
+    for e in errors:
+        print(f"FAIL  {e}")
+    if errors:
+        return 1
+    for image in args.images:
+        art.write_sidecar(image, provenance.made(art.file_digest(image), args.by, args.rights))
+        print(f"ok    {art.sidecar(image)}")
+    return 0
