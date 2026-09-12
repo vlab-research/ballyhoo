@@ -171,41 +171,65 @@ adults, and a study stratified to ages 60+ and to rural areas needs older people
 families and rural settings too. Who appears in a recruitment ad is a selection
 decision, not decoration. The work plan is `planning/phase-2-imagery.md`.
 
-Two sources, one pipeline: **search → shortlist → a human picks → record
-provenance → place in a template.**
+Two sources, one pipeline: **search or generate → candidates → a human picks →
+keep, recording provenance → place in a template.**
+
+### Every image has provenance
+
+Every image a template references has a sidecar, `<image>.provenance.yaml`, saying
+where it came from and on what terms we use it: the stock photo and its
+photographer and licence, the model, prompt and seed that generated it, or who
+made it. Partner art is no exception. An image without a valid sidecar fails the
+render, like a missing font, and fails it even when the PNG is up to date, because
+provenance does not change pixels and so is not in the render hash.
+
+The sidecar holds the image's sha256. An image replaced under an old sidecar would
+otherwise credit the wrong photographer, or claim a licence the new file does not
+have.
+
+It also names the person who picked the image. The agent searches, generates and
+shortlists; a human picks, on the study's review page, and `keep` refuses to write
+a sidecar without that name. ballyhoo does not talk to the review page: it writes
+candidates the page shows and takes picks as arguments.
 
 ### Stock photos, through their APIs
 
-- Search Pexels and Unsplash (later Pixabay, Openverse) through their APIs, not
-  their websites. The APIs return photographer, licence and image sizes as data,
-  and the sites' terms forbid scraping.
-- The agent shortlists from contact sheets it can look at; a human picks. Nothing
-  reaches a template without a pick.
-- Every image carries provenance: source, photo id, page URL, photographer,
-  licence, the query that found it, date fetched. An image without provenance is
-  an error, like a missing font.
-- Follow each API's terms, e.g. Unsplash's requirement to call a photo's download
-  endpoint when it is used, and to credit the photographer.
-- Stock licences come with no model release. Never use an identifiable person in
-  a way that implies they endorse the study.
-- Photos go in as `scenes/`, placed rectangles, not cut-outs: *never matte a figure
-  out of a flattened PNG* still holds. A cut-out needs a background-removal step
-  with its own mask check.
+- Search through the providers' APIs, never their websites: the APIs return
+  photographer, licence and sizes as data, and every site's terms forbid scraping.
+- **Pexels** first. Its licence (like Pixabay's) forbids showing someone "as
+  suffering from, or medicating for, a physical or mental ailment", use "in a
+  political context", and implying that a pictured person endorses anything.
+- **Openverse** only with `cc0` or `pdm` licences: CC BY requires attribution that
+  an ad cannot carry, and Openverse does not verify licences.
+- **Not Unsplash, for now.** Its API guidelines ask for "non-automated" use away
+  from advertising, and require a linked credit wherever the image is shown, which
+  a Meta ad cannot carry. Revisit with written permission.
+- No stock site warrants model releases. Never use an identifiable person in a way
+  that implies they endorse the study, and tell the IRB the imagery is stock.
 - Stock search has its own skew: "Morocco" returns tourist imagery. Queries are
   design decisions, so they are recorded with the pick.
 
-### Generated figures
+### Generated images
 
 - Generation can match a campaign's existing style (illustrated partner art),
   which stock photos cannot, and can show people stock libraries lack.
-- Image generation behind one swappable function,
-  `generate_figure(prompt, seed, size) -> RGBA PNG`; the provider is config.
-- Candidates: Gemini image models (reference/editing mode holds a character
-  consistent across a campaign), FLUX via fal.ai, Adobe Firefly Services.
-- Generate on a transparent or plain background, so there is no matting.
+- Providers sit behind one interface, and a search and a generation produce the
+  same candidates: Gemini image models on Vertex, FLUX (fal.ai or BFL), Adobe
+  Firefly Services.
+- **Keep the bytes the provider delivered.** Re-encoding breaks their C2PA
+  credentials, which BFL's and Adobe's terms forbid removing.
+- Seeds are recorded but are not a way to regenerate an image: Gemini's is best
+  effort only. The kept file is the artefact.
 - **Never let an image model draw the headline.** Accented Spanish and Arabic
   shaping are where glyphs garble. Text stays in CSS.
 - Consistency across a campaign matters more than per-image quality.
+
+### Scenes before cut-outs
+
+No provider returns transparency, so sourced images go in as `scenes/`, placed
+rectangles. *Never matte a figure out of a flattened PNG* still holds; a cut-out
+needs a background-removal step (a matting model on an image generated against a
+plain background) with its own mask check.
 
 ## Phase 3 sketch: generated layouts
 
