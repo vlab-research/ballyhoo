@@ -74,13 +74,25 @@ Researched from the providers' current docs and terms. Details that bind go into
 - **Indemnity:** Google indemnifies unmodified output of GA models on Vertex, not on the
   Developer API. Adobe indemnifies only with a purchased entitlement. BFL and fal do not.
 
+## Spike results
+
+- **Openverse, 2026-09-12: no use for people.** With CC0 and Public Domain Mark only,
+  "elderly woman mobile phone africa" and "elderly woman phone" return nothing, and
+  "grandmother" returns 240 archive images: Tudor portraits and family photos from about
+  1910. It stays as a provider, but it cannot supply contemporary people.
+- **Gemini on Vertex, 2026-09-12: works end to end** from the existing gcloud credentials
+  (project `toixotoixo`; both `gemini-3.1-flash-image` and `gemini-3-pro-image` are GA there).
+  One 1K image took 13 s and came back as a 1024×1024 **PNG**, not the JPEG the docs led us
+  to expect. The Kenya brief "woman in her sixties, rural village, reading her phone" gave a
+  plausible, dignified scene on the first try.
+
 ## Provenance sidecar
 
 `<image>.provenance.yaml` beside the image. Common fields: `source` and `sha256`.
 
 | `source` | Required fields |
 |---|---|
-| `stock` | `provider`, `id`, `page_url`, `creator`, `creator_url`, `licence`, `licence_url`, `query`, `fetched`, `picked: {by, on}` |
+| `stock` | `provider`, `id`, `page_url`, `creator`, `licence`, `licence_url`, `query`, `fetched`, `picked: {by, on}`; optional `creator_url` (Openverse often lacks it) |
 | `generated` | `provider`, `model`, `prompt`, `seed`, `generated`, `picked: {by, on}`; optional `references` (sha256 of each reference image) |
 | `made` | `by` (who made it, e.g. the partner and source document), `rights` (on what terms we use it) |
 
@@ -100,6 +112,12 @@ Researched from the providers' current docs and terms. Details that bind go into
 ## Increments
 
 Each ends with the suite green and a commit.
+
+**Status 2026-09-12:** 1–4 are built and tested except where noted. Called live: Openverse,
+Gemini. Built against the docs but never called: Pexels, fal, Firefly (no credentials yet).
+The backfill in 1 waits on the author's wording for the partner art's `by` and `rights`.
+5 waits for real picks: photo templates belong in `recruitment-creative/designs/`, built
+around the images chosen.
 
 1. **Provenance.** `provenance.py` (pure: validate a record against the file's sha256, which
    template refs are images, attribution text); the render check; `ballyhoo provenance made`;

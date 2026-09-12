@@ -116,6 +116,42 @@ a partner's, write the records with
 
 It never replaces an existing record, and writes none if any file cannot have one.
 
+## Sourcing images
+
+The agent searches or generates **candidates**; a person picks among them on the
+study's review page; `keep` copies a pick into the art library with its provenance.
+
+    uv run ballyhoo stock search "older woman phone market" --provider pexels --n 40 --out candidates/ke-older
+    GOOGLE_CLOUD_PROJECT=<project> uv run ballyhoo generate "<prompt>" --provider gemini --size 1080x1080 --n 4 --out candidates/ke-older
+    uv run ballyhoo keep candidates/ke-older/candidates.yaml pexels-3573351=ke-woman-market \
+        --to ../recruitment-creative/scenes --picked-by "<the person who picked>"
+
+A candidates directory holds:
+
+| Path | What |
+|---|---|
+| `candidates.yaml` | one entry per candidate: `n`, `id`, `width`, `height`, `full` and `preview` (URLs, or paths in this directory), `thumb`, and the provenance record less `sha256`, `picked` and `fetched` |
+| `thumbs/<id>.jpg` | 640 px on the long edge, for review pages |
+| `sheet-01.png` … | contact sheets, 20 to a sheet, numbered by `n` |
+| `generated/<id>.<ext>` | generated images, as delivered |
+
+Searches and generations append to the directory. Ids are `<provider>-<provider's
+id>` for stock and `<provider>-<first 12 hex digits of sha256>` for generated
+images, so the same image is never listed twice and numbers never change.
+
+| `--provider` | Kind | Credentials | Notes |
+|---|---|---|---|
+| `pexels` | stock | `PEXELS_API_KEY` | |
+| `openverse` | stock | none | CC0 and public domain only, which in practice means archive images |
+| `gemini` | generate | Google application default credentials, and `GOOGLE_CLOUD_PROJECT` naming who pays | Vertex; `--image-size 1K`/`2K`/`4K`; `--size` sets the aspect ratio, which must be one Gemini supports |
+| `fal` | generate | `FAL_KEY` | FLUX.2 [pro] at exactly `--size` |
+| `firefly` | generate | `FIREFLY_SERVICES_CLIENT_ID`, `FIREFLY_SERVICES_CLIENT_SECRET` | Image 5; 1:1, 4:3, 3:4, 16:9 or 9:16 only |
+
+A missing credential is an error naming the variable. `keep` writes the bytes the
+provider delivered, never re-encoded (that would strip C2PA credentials); never
+overwrites a file; and refuses a download that is not a JPEG, PNG or WebP. None of
+the generators return transparency, so kept images are scenes, not cut-outs.
+
 ## What fails a creative
 
 | Check | Fails when |
@@ -150,8 +186,11 @@ a pure function, and the browser only measures and takes screenshots.
 | `fit.py` | the font size: template settings, line boxes, lines, the largest size that fits |
 | `checks.py` | whether a render passes |
 | `provenance.py` | whether an image's provenance record is complete and belongs to that image |
+| `candidates.py` | the candidates file, ids, contact-sheet layout, and what keeping a pick writes |
+| `providers/` | each API's requests, and candidates or images from its replies |
 | `render.py` | nothing; it is the shell. Reads files, drives Chrome, writes PNGs |
 | `art.py` | nothing; the shell for provenance. Hashes images, reads and writes sidecars |
+| `sourcing.py` | nothing; the shell for candidates and providers. Sends requests, polls queues, draws sheets, writes kept images |
 | `cli.py` | the `ballyhoo` command |
 
 ## Tests
@@ -165,6 +204,8 @@ a pure function, and the browser only measures and takes screenshots.
   provenance check through a real browser on a small synthetic template.
 - `tests/integration/test_provenance_cli.py` runs `ballyhoo provenance made` on
   files, without a browser.
+- `tests/integration/test_sourcing.py` runs search, generation (including queued
+  providers), contact sheets and `keep` against a mock HTTP transport: no network.
 - `tests/integration/test_lac_designs.py` runs the seven LAC templates with stand-in
   art drawn by `tests/lac_art.py`: a snapshot of every creative's font size and line
   count (`tests/fixtures/lac/expected.yaml`), and a regression test for each bug
