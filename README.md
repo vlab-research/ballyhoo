@@ -75,16 +75,52 @@ One self-contained HTML file per design per size, named `<W>x<H>.html`.
 - Inside `#headline`, one element whose only content is `{{text}}`.
 - `#figure`, optional: the cut-out the headline must not touch.
 - Images, CSS images and fonts by relative path from the template. Pin fonts with
-  `@font-face`; never rely on system fonts.
+  `@font-face`; never rely on system fonts. Every image needs provenance (below).
 - Use unitless `line-height` and `em` spacing so they scale when autofit shrinks
   the text.
 - Say in a comment at the top what the design is based on and anything a reader
   would otherwise have to rediscover (placements, deliberate departures).
 
+## Provenance
+
+Every image a template references needs a sidecar beside it,
+`<image>.provenance.yaml`, saying where it came from and on what terms we use it.
+Without a valid one, the image's creatives fail, even when their PNGs are up to
+date.
+
+```yaml
+# scenes/market-woman.jpg.provenance.yaml
+source: stock
+sha256: 9f2c…                    # of the image: replace the image and the record no longer matches
+provider: pexels
+id: '3573351'
+page_url: https://www.pexels.com/photo/3573351/
+creator: Lukas Rodriguez
+licence: Pexels License
+licence_url: https://www.pexels.com/license/
+query: older woman phone market kenya
+fetched: 2026-09-12
+picked: {by: A. Author, on: 2026-09-12}
+```
+
+| `source` | Required besides `sha256` |
+|---|---|
+| `stock` | `provider`, `id`, `page_url`, `creator`, `licence`, `licence_url`, `query`, `fetched`, `picked` (`creator_url` optional) |
+| `generated` | `provider`, `model`, `prompt`, `seed`, `generated`, `picked` |
+| `made` | `by` (who made it, and the source document), `rights` (on what terms we use it) |
+
+`picked.by` names the person who chose the image. For art a person made, such as
+a partner's, write the records with
+
+    uv run ballyhoo provenance made characters/*.png --by "<who, and the source document>" --rights "<terms>"
+
+It never replaces an existing record, and writes none if any file cannot have one.
+
 ## What fails a creative
 
 | Check | Fails when |
 |---|---|
+| Provenance | an image the template references has no valid provenance sidecar |
 | Fit | at `data-min-size` the text still overflows `#headline` or needs more than `data-max-lines` |
 | Figure collision | a headline line box (plus margin) touches `#figure`'s alpha; mask specks under 500 px are ignored |
 | Contrast | WCAG ratio of a text colour against the pixels behind its glyphs is below `data-min-contrast` |
@@ -113,7 +149,9 @@ a pure function, and the browser only measures and takes screenshots.
 | `cache.py` | whether to render: the files a template references, the inputs digest |
 | `fit.py` | the font size: template settings, line boxes, lines, the largest size that fits |
 | `checks.py` | whether a render passes |
+| `provenance.py` | whether an image's provenance record is complete and belongs to that image |
 | `render.py` | nothing; it is the shell. Reads files, drives Chrome, writes PNGs |
+| `art.py` | nothing; the shell for provenance. Hashes images, reads and writes sidecars |
 | `cli.py` | the `ballyhoo` command |
 
 ## Tests
@@ -123,8 +161,10 @@ a pure function, and the browser only measures and takes screenshots.
     uv run pytest --update-expected   # after an intentional layout change, rewrite the snapshot
 
 - `tests/unit/` tests the core with plain data: no browser, no files.
-- `tests/integration/test_render.py` runs the Phase 1 acceptance criteria through a
-  real browser on a small synthetic template.
+- `tests/integration/test_render.py` runs the Phase 1 acceptance criteria and the
+  provenance check through a real browser on a small synthetic template.
+- `tests/integration/test_provenance_cli.py` runs `ballyhoo provenance made` on
+  files, without a browser.
 - `tests/integration/test_lac_designs.py` runs the seven LAC templates with stand-in
   art drawn by `tests/lac_art.py`: a snapshot of every creative's font size and line
   count (`tests/fixtures/lac/expected.yaml`), and a regression test for each bug
