@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Nandan Rao", email = "nandanmarkrao@gmail.com" }]
 dependencies = [
+    "google-auth[requests]>=2.58.0",
+    "httpx>=0.28.1",
     "numpy>=2",
     "pillow>=10",
     "playwright>=1.49",

@@ -1,0 +1,176 @@
+"""Searching, generating and keeping: the shell for candidates.py and the providers.
+
+Sends the requests providers build, saves generated images, downloads
+thumbnails, draws contact sheets and writes kept images, as delivered, with
+their provenance.
+"""
+import datetime
+import hashlib
+import io
+import os
+from pathlib import Path
+
+import google.auth
+import google.auth.transport.requests
+import httpx
+import yaml
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+from . import art, candidates as cands
+from .providers import Request
+
+TIMEOUT = 120
+USER_AGENT = "ballyhoo/0.1 (recruitment ads; https://github.com/vlab-research/ballyhoo)"
+
+
+def client(**kwargs):
+    return httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}, **kwargs)
+
+
+def send(http, request):
+    response = http.request(request.method, request.url, params=request.params, headers=request.headers,
+                            json=request.json)
+    if response.is_error:  # the provider's explanation is in the body, not the status
+        raise httpx.HTTPStatusError(f"{response.status_code} from {request.url}: {response.text[:500]}",
+                                    request=response.request, response=response)
+    return response
+
+
+def google_token():
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    creds.refresh(google.auth.transport.requests.Request())
+    return creds.token
+
+
+def generate(http, provider, prompt, n, seed, width, height, directory, env=None, today=None, **options):
+    """Generate with seeds seed .. seed+n-1, keeping each image as delivered under <directory>/generated/.
+
+    Returns (candidates, errors). A refusal is reported and the other seeds still run;
+    an HTTP error stops the run, since the next seed would meet it too.
+    """
+    env = os.environ if env is None else env
+    token = google_token() if getattr(provider, "AUTH", None) == "google-adc" else None
+    model = options.get("model") or provider.MODEL
+    found, errors = [], []
+    for s in range(seed, seed + n):
+        request = provider.generate_request(prompt, s, width, height, env, token, **{**options, "model": model})
+        try:
+            data = provider.parse_image(send(http, request).json())
+        except provider.Refused as e:
+            errors.append(f"seed {s}: {e}")
+            continue
+        except httpx.HTTPError as e:
+            errors.append(f"seed {s}: {e}")
+            break
+        with Image.open(io.BytesIO(data)) as im:
+            w, h = im.size
+        c = cands.generated_candidate(provider.NAME, model, prompt, s, hashlib.sha256(data).hexdigest(),
+                                      cands.extension(data), w, h, today or datetime.date.today())
+        path = Path(directory) / c.full
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        found.append(c)
+    return found, errors
+
+
+def search(http, provider, query, n, env=None):
+    """Up to `n` candidates, paging until there are enough or the provider has no more."""
+    env = os.environ if env is None else env
+    found, page = [], 1
+    while len(found) < n:
+        batch, more = provider.parse_search(send(http, provider.search_request(query, page, n, env)).json(), query)
+        found = cands.merge(found, batch)
+        if not (more and batch):
+            break
+        page += 1
+    return found[:n]
+
+
+def read_image(http, directory, ref):
+    """An image by URL, or by path relative to the candidates directory."""
+    if ref.startswith(("https://", "http://")):
+        return send(http, Request("GET", ref)).content
+    return (Path(directory) / ref).read_bytes()
+
+
+def write_thumb(path, data):
+    with Image.open(io.BytesIO(data)) as im:
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        im.resize(cands.fit(*im.size, cands.THUMB_EDGE), Image.LANCZOS).save(path, quality=85)
+
+
+def draw_sheets(directory, candidates):
+    """Numbered contact sheets, sheet-01.png onwards, from the thumbnails."""
+    number_font, size_font = ImageFont.load_default(size=40), ImageFont.load_default(size=18)
+    paths = []
+    for s, indexes in enumerate(cands.sheets(len(candidates)), 1):
+        sheet = Image.new("RGB", cands.sheet_size(len(indexes)), "white")
+        draw = ImageDraw.Draw(sheet)
+        for slot, i in enumerate(indexes):
+            c, (x, y) = candidates[i], cands.cell_origin(slot)
+            with Image.open(directory / c.thumb) as thumb:
+                w, h = cands.fit(*thumb.size, cands.SHEET_CELL - 12)
+                sheet.paste(thumb.resize((w, h), Image.LANCZOS),
+                            (x + (cands.SHEET_CELL - w) // 2, y + (cands.SHEET_CELL - h) // 2))
+            label = str(i + 1)
+            box = draw.textbbox((x + 10, y + 8), label, font=number_font)
+            draw.rectangle((box[0] - 6, box[1] - 4, box[2] + 6, box[3] + 4), fill="black")
+            draw.text((x + 10, y + 8), label, font=number_font, fill="white")
+            draw.text((x + 10, y + cands.SHEET_CELL - 30), f"{c.width}x{c.height}", font=size_font, fill="black",
+                      stroke_width=2, stroke_fill="white")
+        path = directory / f"sheet-{s:02d}.png"
+        sheet.save(path)
+        paths.append(path)
+    return paths
+
+
+def add_candidates(directory, found, http):
+    """Add candidates to a directory: candidates.yaml, a thumbnail each, and contact sheets.
+
+    Returns (all candidates in the directory, sheet paths).
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / cands.FILE
+    existing = []
+    if path.exists():
+        existing, errors = cands.load(yaml.safe_load(path.read_text()))
+        if errors:
+            raise ValueError(f"{path}: " + "; ".join(errors))
+    merged = cands.merge(existing, found)
+    for c in merged:
+        if not (directory / c.thumb).exists():
+            write_thumb(directory / c.thumb, read_image(http, directory, c.preview))
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(yaml.safe_dump(cands.dump(merged), sort_keys=False, allow_unicode=True))
+    tmp.replace(path)
+    return merged, draw_sheets(directory, merged)
+
+
+def keep(candidates_file, picks, to_dir, picked_by, http, today=None):
+    """Write each picked candidate into `to_dir` with its sidecar. Returns (written paths, errors)."""
+    candidates_file, to_dir = Path(candidates_file), Path(to_dir)
+    found, errors = cands.load(yaml.safe_load(candidates_file.read_text()))
+    if errors:
+        return [], [f"{candidates_file}: {e}" for e in errors]
+    taken = {p.name.split(".")[0] for p in to_dir.iterdir()} if to_dir.is_dir() else set()
+    keeps, errors = cands.plan_keep(found, picks, taken)
+    written = []
+    for k in keeps:
+        try:
+            data = read_image(http, candidates_file.parent, k.candidate.full)
+            digest = hashlib.sha256(data).hexdigest()
+            record, problems = cands.kept_record(k.candidate, digest, picked_by, today or datetime.date.today())
+            if problems:
+                errors.append(f"{k.candidate.id}: {'; '.join(problems)}")
+                continue
+            image = to_dir / (k.name + cands.extension(data))
+            to_dir.mkdir(parents=True, exist_ok=True)
+            with image.open("xb") as f:
+                f.write(data)
+            art.write_sidecar(image, record)
+            written.append(image)
+        except (httpx.HTTPError, OSError, ValueError) as e:
+            errors.append(f"{k.candidate.id}: {type(e).__name__}: {e}")
+    return written, errors
