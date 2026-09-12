@@ -9,7 +9,7 @@ from PIL import Image
 
 from ballyhoo import art, sourcing
 from ballyhoo.provenance import problems
-from ballyhoo.providers import gemini, pexels
+from ballyhoo.providers import fal, firefly, gemini, pexels
 
 TODAY = datetime.date(2026, 9, 12)
 
@@ -152,6 +152,56 @@ def test_generate_stops_at_an_http_error_rather_than_repeating_it(tmp_path, monk
         found, errors = sourcing.generate(http, gemini, "x", 4, 1, 1080, 1080, tmp_path, env={"GOOGLE_CLOUD_PROJECT": "p"})
     assert found == [] and len(calls) == 1
     assert errors[0].startswith("seed 1: 403 from https://aiplatform.googleapis.com/") and "Permission denied" in errors[0]
+
+
+def test_a_queued_generation_is_polled_until_done_then_downloaded_without_credentials(tmp_path):
+    png = io.BytesIO()
+    Image.new("RGB", (1080, 1350), (20, 20, 20)).save(png, "PNG")
+    polls, slept = [], []
+
+    def fake_fal(request):
+        if request.url.path == "/fal-ai/flux-2-pro":
+            assert request.headers["Authorization"] == "Key k"
+            return httpx.Response(200, json={"status_url": "https://queue.fal.run/s", "response_url": "https://queue.fal.run/r"})
+        if request.url.path == "/s":
+            polls.append(1)
+            return httpx.Response(200, json={"status": "COMPLETED" if len(polls) == 3 else "IN_PROGRESS"})
+        if request.url.path == "/r":
+            return httpx.Response(200, json={"images": [{"url": "https://v3.fal.media/files/a.png"}], "seed": 1})
+        assert "Authorization" not in request.headers
+        return httpx.Response(200, content=png.getvalue())
+
+    with sourcing.client(transport=httpx.MockTransport(fake_fal)) as http:
+        found, errors = sourcing.generate(http, fal, "An older man in the Atlas", 1, 1, 1080, 1350, tmp_path,
+                                          env={"FAL_KEY": "k"}, sleep=slept.append)
+    assert errors == [] and len(polls) == 3 and slept == [2, 2]
+    assert found[0].provenance["model"] == "fal-ai/flux-2-pro"
+    assert (tmp_path / found[0].full).read_bytes() == png.getvalue()
+
+
+def test_firefly_trades_its_client_credentials_for_a_token_once_per_run(tmp_path):
+    tokens, generations = [], []
+
+    def fake_firefly(request):
+        if request.url.host == "ims-na1.adobelogin.com":
+            tokens.append(request.content)
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 86399})
+        if request.url.path == "/v4/images/generate-async":
+            assert (request.headers["Authorization"], request.headers["x-api-key"]) == ("Bearer t", "cid")
+            generations.append(json.loads(request.content)["seeds"])
+            return httpx.Response(202, json={"links": {"result": {"href": "https://firefly-api.adobe.io/v3/status/j"}}})
+        if request.url.path == "/v3/status/j":
+            return httpx.Response(200, json={"status": "succeeded", "result": {"outputs": [
+                {"image": {"url": f"https://s3.example/{len(generations)}.jpg"}}]}})
+        assert "Authorization" not in request.headers and "x-api-key" not in request.headers
+        return httpx.Response(200, content=jpeg((10 * len(generations), 0, 0), (1024, 1024)))
+
+    env = {"FIREFLY_SERVICES_CLIENT_ID": "cid", "FIREFLY_SERVICES_CLIENT_SECRET": "secret"}
+    with sourcing.client(transport=httpx.MockTransport(fake_firefly)) as http:
+        found, errors = sourcing.generate(http, firefly, "A family at home", 2, 5, 1080, 1080, tmp_path, env=env,
+                                          sleep=lambda s: None)
+    assert errors == [] and len(tokens) == 1 and generations == [[5], [6]]
+    assert [c.provenance["seed"] for c in found] == [5, 6]
 
 
 def test_an_error_page_instead_of_an_image_is_not_kept(tmp_path):

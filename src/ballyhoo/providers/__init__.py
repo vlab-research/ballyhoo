@@ -3,6 +3,11 @@
 Pure. Each provider module builds Requests and parses JSON; sourcing.py sends
 them. Credentials come from the environment the shell passes in, and a missing
 one is an error naming the variable, never a skipped provider.
+
+A stock provider has search_request and parse_search. A generator has
+generate_request and either parse_image (the reply holds the image) or
+parse_submission, poll_request, parse_status and parse_result (it queues).
+A generator that needs a token first has token_request and parse_token.
 """
 from dataclasses import dataclass, field
 
@@ -18,6 +23,7 @@ class Request:
     params: dict = field(default_factory=dict)
     headers: dict = field(default_factory=dict)
     json: dict | None = None
+    data: dict | None = None  # a form body
 
 
 def credential(env, name):

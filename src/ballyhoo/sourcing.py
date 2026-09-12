@@ -8,6 +8,7 @@ import datetime
 import hashlib
 import io
 import os
+import time
 from pathlib import Path
 
 import google.auth
@@ -20,6 +21,8 @@ from . import art, candidates as cands
 from .providers import Request
 
 TIMEOUT = 120
+POLL_SECONDS = 2
+POLL_LIMIT = 300
 USER_AGENT = "ballyhoo/0.1 (recruitment ads; https://github.com/vlab-research/ballyhoo)"
 
 
@@ -29,7 +32,7 @@ def client(**kwargs):
 
 def send(http, request):
     response = http.request(request.method, request.url, params=request.params, headers=request.headers,
-                            json=request.json)
+                            json=request.json, data=request.data)
     if response.is_error:  # the provider's explanation is in the body, not the status
         raise httpx.HTTPStatusError(f"{response.status_code} from {request.url}: {response.text[:500]}",
                                     request=response.request, response=response)
@@ -42,24 +45,51 @@ def google_token():
     return creds.token
 
 
-def generate(http, provider, prompt, n, seed, width, height, directory, env=None, today=None, **options):
+def auth_token(http, provider, env):
+    if hasattr(provider, "token_request"):
+        return provider.parse_token(send(http, provider.token_request(env)).json())
+    if getattr(provider, "AUTH", None) == "google-adc":
+        return google_token()
+    return None
+
+
+def image_bytes(http, provider, request, env, token, sleep):
+    """The generated image, waiting on the provider's queue if it has one."""
+    reply = send(http, request).json()
+    if not hasattr(provider, "parse_submission"):
+        return provider.parse_image(reply)
+    status_url, result_url = provider.parse_submission(reply)
+    for _ in range(POLL_LIMIT):
+        status = send(http, provider.poll_request(status_url, env, token)).json()
+        if provider.parse_status(status):
+            break
+        sleep(getattr(provider, "POLL_SECONDS", POLL_SECONDS))
+    else:
+        raise TimeoutError(f"{provider.NAME} had not finished after {POLL_LIMIT} polls")
+    result = status if result_url == status_url else send(http, provider.poll_request(result_url, env, token)).json()
+    # Result URLs are pre-signed or public: sending the provider's credentials to them would leak the credentials.
+    return send(http, Request("GET", provider.parse_result(result))).content
+
+
+def generate(http, provider, prompt, n, seed, width, height, directory, env=None, today=None, sleep=time.sleep,
+             model=None, **options):
     """Generate with seeds seed .. seed+n-1, keeping each image as delivered under <directory>/generated/.
 
     Returns (candidates, errors). A refusal is reported and the other seeds still run;
-    an HTTP error stops the run, since the next seed would meet it too.
+    an HTTP error or a timeout stops the run, since the next seed would meet it too.
     """
     env = os.environ if env is None else env
-    token = google_token() if getattr(provider, "AUTH", None) == "google-adc" else None
-    model = options.get("model") or provider.MODEL
+    token = auth_token(http, provider, env)
+    model = model or provider.MODEL
     found, errors = [], []
     for s in range(seed, seed + n):
-        request = provider.generate_request(prompt, s, width, height, env, token, **{**options, "model": model})
+        request = provider.generate_request(prompt, s, width, height, env, token, model=model, **options)
         try:
-            data = provider.parse_image(send(http, request).json())
+            data = image_bytes(http, provider, request, env, token, sleep)
         except provider.Refused as e:
             errors.append(f"seed {s}: {e}")
             continue
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, TimeoutError) as e:
             errors.append(f"seed {s}: {e}")
             break
         with Image.open(io.BytesIO(data)) as im:

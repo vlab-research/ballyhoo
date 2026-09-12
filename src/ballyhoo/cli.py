@@ -4,10 +4,10 @@ import secrets
 from pathlib import Path
 
 from . import art, candidates, provenance, render, sourcing
-from .providers import MissingCredential, gemini, openverse, pexels
+from .providers import MissingCredential, fal, firefly, gemini, openverse, pexels
 
 STOCK = {"openverse": openverse, "pexels": pexels}
-GENERATORS = {"gemini": gemini}
+GENERATORS = {"fal": fal, "firefly": firefly, "gemini": gemini}
 
 
 def main(argv=None):
@@ -50,8 +50,8 @@ def main(argv=None):
     g.add_argument("--size", required=True, help="the shape to generate, e.g. 1080x1350")
     g.add_argument("--n", type=int, default=4, help="how many images, one seed each (default 4)")
     g.add_argument("--seed", type=int, help="the first seed (default: random)")
-    g.add_argument("--model", help=f"default: {gemini.MODEL}")
-    g.add_argument("--image-size", choices=gemini.IMAGE_SIZES, default="2K", help="Gemini's resolution (default 2K)")
+    g.add_argument("--model", help=", ".join(f"{name} default: {p.MODEL}" for name, p in sorted(GENERATORS.items())))
+    g.add_argument("--image-size", choices=gemini.IMAGE_SIZES, help="Gemini only: its resolution (default 2K)")
     g.add_argument("--out", type=Path, required=True, help="the candidates directory; images are appended")
     g.set_defaults(run=run_generate)
 
@@ -118,12 +118,17 @@ def run_generate(ap, args):
     size = re.fullmatch(r"(\d+)x(\d+)", args.size)
     if not size:
         ap.error(f"--size {args.size!r}: expected <width>x<height>")
+    provider = GENERATORS[args.provider]
+    options = {}
+    if provider is gemini:
+        options["image_size"] = args.image_size or "2K"
+    elif args.image_size:
+        ap.error(f"--image-size applies to gemini, not {args.provider}")
     seed = secrets.randbelow(2**31) if args.seed is None else args.seed
     with sourcing.client() as http:
         try:
-            found, errors = sourcing.generate(http, GENERATORS[args.provider], args.prompt, args.n, seed,
-                                              int(size[1]), int(size[2]), args.out, model=args.model,
-                                              image_size=args.image_size)
+            found, errors = sourcing.generate(http, provider, args.prompt, args.n, seed, int(size[1]), int(size[2]),
+                                              args.out, model=args.model, **options)
         except (MissingCredential, ValueError) as e:
             print(f"FAIL  {e}")
             return 1
