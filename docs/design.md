@@ -231,6 +231,24 @@ rectangles. *Never matte a figure out of a flattened PNG* still holds; a cut-out
 needs a background-removal step (a matting model on an image generated against a
 plain background) with its own mask check.
 
+### Judging imagery (planned: `planning/imagery-pipeline.md`)
+
+Whether an image is right for a study is a human judgement, but much of what makes
+it wrong for an ad is not. The pipeline runs from a **brief** (what is needed,
+per need: search queries and generation prompts) to a **run**, an immutable
+folder of candidates. Each candidate is rendered into real templates with a sample
+headline, so the existing checks screen out candidates that would not make a
+working ad, and a person rates the rest against the need.
+
+- **The smoke test is the pipeline itself** on a small brief kept in the repo, so
+  it cannot drift from the tool. Tests never call a provider; a fake provider
+  draws images with known geometry.
+- **Files in, files out.** A person's ratings reach ballyhoo only as
+  `verdicts.yaml`, whether they were made on a local review page or a published
+  one.
+- **Runs are compared, not overwritten.** Tuning a prompt or choosing a provider
+  is a comparison of verdicts across runs.
+
 ## Phase 3 sketch: generated layouts
 
 Out of scope until Phase 2 is trusted. It needs design judgement, so it needs a

@@ -101,7 +101,17 @@ Researched from the providers' current docs and terms. Details that bind go into
   - **Composition varies** from close half-length portraits to small full-length figures;
     templates need headroom for the headline, so prompts should name the framing too.
 
-  Stock photos stay untested until `PEXELS_API_KEY` exists.
+- **Pexels, 2026-09-13: the key works and the parser holds on real replies, but stock does not
+  meet the need.** "older african woman mobile phone village", 10 results, none usable:
+  - five are older white women from one studio series (the search matched "older woman" and
+    "phone" and ignored "african" and "village");
+  - one is a younger woman with a logo on her shirt, one an ethnographic portrait of an elder
+    without a phone, one a village scene with a child in front, one a black-and-white
+    portrait of a young woman.
+
+  Originals run 3456×5184 to 6240×4160. Stock may still serve generic scenes; for specific
+  people in specific places, generation carries the need. Try narrower queries (country and
+  town names) in the smoke brief before concluding.
 
 ## Provenance sidecar
 
@@ -130,11 +140,12 @@ Researched from the providers' current docs and terms. Details that bind go into
 
 Each ends with the suite green and a commit.
 
-**Status 2026-09-12:** 1–4 are built and tested except where noted. Called live: Openverse,
-Gemini. Built against the docs but never called: Pexels, fal, Firefly (no credentials yet).
-The backfill in 1 waits on the author's wording for the partner art's `by` and `rights`.
-5 waits for real picks: photo templates belong in `recruitment-creative/designs/`, built
-around the images chosen.
+**Status 2026-09-13:** 1–4 are built and tested. Called live: Openverse, Gemini, Pexels.
+Built against the docs but never called: fal, Firefly (no credentials). The backfill in 1
+waits on the author's wording for the partner art's `by` and `rights`. **6–8 are superseded
+by `planning/imagery-pipeline.md`** (briefs, runs, preview, a review page, verdicts, and the
+smoke test); a future agent starts there. 5 waits for real picks: photo templates for studies
+belong in `recruitment-creative/designs/`, built around the images chosen.
 
 1. **Provenance.** `provenance.py` (pure: validate a record against the file's sha256, which
    template refs are images, attribution text); the render check; `ballyhoo provenance made`;
