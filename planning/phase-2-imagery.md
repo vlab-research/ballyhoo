@@ -112,6 +112,12 @@ Researched from the providers' current docs and terms. Details that bind go into
   Originals run 3456×5184 to 6240×4160. Stock may still serve generic scenes; for specific
   people in specific places, generation carries the need. Try narrower queries (country and
   town names) in the smoke brief before concluding.
+- **FLUX on fal, 2026-09-14: works end to end.** `fal-ai/flux-2-pro`, one image of the same
+  Kenya brief: 12.5 s, a PNG, and a plausible scene with a warmer, more graded look than
+  Gemini's. **Asked for 1080×1080, it returned 1072×1072**: FLUX rounds sizes (apparently to
+  multiples of 16). Candidates record the real size, and templates crop with `object-fit`,
+  but a preview check for upscaling will see it. The author's `.env` names the key
+  `FAL_API_KEY`; the code reads `FAL_KEY`, fal's own name.
 
 ## Provenance sidecar
 
@@ -140,9 +146,12 @@ Researched from the providers' current docs and terms. Details that bind go into
 
 Each ends with the suite green and a commit.
 
-**Status 2026-09-13:** 1–4 are built and tested. Called live: Openverse, Gemini, Pexels.
-Built against the docs but never called: fal, Firefly (no credentials). The backfill in 1
-waits on the author's wording for the partner art's `by` and `rights`. **6–8 are superseded
+**Status 2026-09-14:** 1–4 are built and tested. Called live: Openverse, Gemini, Pexels, fal.
+Built against the docs but never called: Firefly (no credentials). Partner art in
+`recruitment-creative/` is backfilled as `made` (19 of 20 files, wording approved by the
+author). `scenes/kids-peeking.png` is a Pexels or Unsplash photo, not Express art, so it has
+no record until its source is found; on this branch SSO passes 72 of 72 and LAC 36 of 42,
+the six failures being `kids-boxes`. **6–8 are superseded
 by `planning/imagery-pipeline.md`** (briefs, runs, preview, a review page, verdicts, and the
 smoke test); a future agent starts there. 5 waits for real picks: photo templates for studies
 belong in `recruitment-creative/designs/`, built around the images chosen.

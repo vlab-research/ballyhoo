@@ -16,13 +16,14 @@ when the steps are done and their lessons are in `docs/design.md`.
   `planning/phase-2-imagery.md` (API findings and spike results), then this file.
 - **Tests:** `uv run pytest -m "not browser"` (about 1 s), `uv run pytest` (about 50 s).
   122 pass on the branch.
-- **Credentials:** `.env` in the main checkout holds `PEXELS_API_KEY`; the worktree has no
-  `.env` of its own, so run `uv run --env-file ../ballyhoo/.env ballyhoo …`. Gemini uses
+- **Credentials:** `.env` in the main checkout holds `PEXELS_API_KEY` and a fal key named
+  `FAL_API_KEY` (the code reads `FAL_KEY`: rename it, or map it when running). The worktree
+  has no `.env` of its own, so run `uv run --env-file ../ballyhoo/.env ballyhoo …`. Gemini uses
   gcloud application default credentials (they work) plus `GOOGLE_CLOUD_PROJECT`; the spikes
-  used `toixotoixo`, but the author has not said which project should pay. There are no fal
-  or Firefly credentials.
-- **Called live:** Openverse and Gemini (2026-09-12), Pexels (2026-09-13). **Never called
-  live:** fal, Firefly. Spend so far: about ten Gemini images, under $1.
+  used `toixotoixo`, but the author has not said which project should pay. There are no
+  Firefly credentials.
+- **Called live:** Openverse and Gemini (2026-09-12), Pexels (2026-09-13), fal (2026-09-14).
+  **Never called live:** Firefly. Spend so far: about ten Gemini images, under $1.
 
 ## What this builds, and why
 
@@ -303,9 +304,11 @@ Pexels and Gemini.
 
 ## Open questions for the author (carried over)
 
-- The `by` and `rights` wording for the partner art in `recruitment-creative/`, so it can be
-  backfilled with `ballyhoo provenance made`. Until then, merging this branch makes every
-  existing study fail its render.
+- **Partner art is backfilled** (2026-09-14) except `scenes/kids-peeking.png`, a Pexels or
+  Unsplash photo whose source is not yet found; LAC's `kids-boxes` fails until it has a record.
+  A `stock` record requires `query`, `fetched` and `picked`, which nobody knows for an old
+  download. Decide whether a backfilled stock record may omit them (marked, say,
+  `backfilled: <date>`), or whether the photo is re-found and re-picked through `keep`.
 - FLUX through fal or BFL direct; whether vlab has an Adobe Firefly Services contract;
   whether to ask Unsplash or drop it.
 - Which Google Cloud project pays for Gemini.
