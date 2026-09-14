@@ -11,9 +11,10 @@ from pathlib import Path
 import httpx
 import pytest
 import yaml
+from playwright.sync_api import expect, sync_playwright
 
 import fake_provider
-from ballyhoo import art, cli, provenance, review_server, verdicts
+from ballyhoo import art, cli, provenance, render, review_server, verdicts
 
 SMOKE_DESIGNS = Path(__file__).parents[2] / "smoke" / "designs"
 TODAY = datetime.date.today()
@@ -238,3 +239,41 @@ def test_review_summary_prints_the_tallies_of_either_verdicts_file(run, capsys):
         f"FAIL  {run.resolve() / 'verdicts.yaml'}: rated_on must be a date, e.g. 2026-09-14, not 'soon'"]
     with pytest.raises(SystemExit):
         cli.main(["review", str(run), "--agent"])
+
+
+@pytest.mark.browser
+def test_a_person_rates_on_the_page_and_saving_writes_verdicts(run, served, tmp_path):
+    tile = 'article[data-key="ke-woman/{}"]'.format
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=render.chrome_path())
+        try:
+            page = browser.new_page(viewport={"width": 1600, "height": 1000})
+            page.goto(str(served.base_url))
+            three = page.locator(tile("fake-bright-3"))
+            three.get_by_role("button", name="keep").click()
+            three.get_by_label("crop").check()
+            three.get_by_placeholder("note").fill("Just room for the headline.")
+            page.locator(f'{tile("fake-bright-2")} .head code').click()
+            page.keyboard.press("d")
+
+            page.get_by_role("button", name="Save").click()
+            expect(page.locator("#errors")).to_contain_text("Enter your name")
+            assert not (run / "verdicts.yaml").exists()
+
+            page.get_by_label("Your name").fill("A. Author")
+            page.get_by_role("button", name="Save").click()
+            expect(page.locator("#status")).to_contain_text("saved to verdicts.yaml")
+            page.screenshot(path=tmp_path / "review.png")
+
+            static = browser.new_page()
+            static.goto((run / "review.html").as_uri())
+            expect(static.locator("#banner")).to_be_visible()
+            keep = static.locator(f'{tile("fake-bright-3")} button.keep')
+            expect(keep).to_be_disabled()
+            expect(keep).to_have_attribute("aria-pressed", "true")
+        finally:
+            browser.close()
+    assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {
+        "rated_by": "A. Author", "rated_on": TODAY, "needs": {"ke-woman": {
+            "fake-bright-2": {"verdict": "drop"},
+            "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."}}}}
