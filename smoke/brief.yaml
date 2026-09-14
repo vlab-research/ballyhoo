@@ -1,0 +1,75 @@
+# The smoke brief: the imagery pipeline end to end on real Pexels replies, small
+# enough to run whenever the tool changes. Its review page is also where queries
+# are tuned, by each query's keep rate. README.md § Smoke test has the commands.
+#
+# Stock only: photos come from stock, and image models make drawings, which
+# preview cannot place yet (docs/creative-rules.md).
+#
+# Queries follow what searching Pexels has shown:
+# - short: an age, a sex, and a place or a job; place words only match in short queries;
+# - small towns, since famous places return what tourists photograph there;
+# - no "phone", which outranks place words and returns Western studio shoots;
+# - no clothing or ethnic dress words, which return costume portraits;
+# - no negation, since Pexels matches the negated word;
+# - "middle aged", never older: no one in an ad looks older than middle age.
+#
+# Four queries of eight results a need: by the third or fourth query most results
+# repeat an earlier one, and twelve searches stay far inside Pexels's 200 requests
+# an hour.
+
+designs: designs
+
+defaults:
+  n: 8
+  preview:
+    templates: &band [photo-band/1080x1080]
+    copy: Take a short survey and share *your views*.
+
+ke-woman:
+  need: >-
+    A Kenyan woman who looks to be in her fifties, in a rural setting: a farm, a
+    village or a small-town market. She need not be holding a phone. Whether a
+    woman from a neighbouring country who looks the part will do is still open
+    with the author.
+  search:
+    pexels:
+      - middle aged woman farmer Kenya
+      - middle aged Kenyan woman
+      - mature woman Kenya village
+      - middle aged woman Nyeri
+
+ma-man:
+  need: >-
+    A Moroccan man who looks to be in his fifties, in the rural south: a village,
+    a farm, or a small town such as Tiznit or Taroudant. He need not be holding a
+    phone. Whether a man from another country who looks the part will do is
+    still open with the author.
+  search:
+    pexels:
+      - middle aged man Tiznit
+      - middle aged man Taroudant
+      - Moroccan village man
+      - middle aged farmer Morocco
+  # French, not Arabic: the template's Hind has no Arabic glyphs, and a fallback font would pass unnoticed.
+  preview:
+    templates: *band
+    copy: Répondez à une courte enquête et donnez *votre avis*.
+
+# Pexels has almost no unveiled Moroccan women of this age, so this need is the
+# known gap: it stays so each run shows whether that is still true, and a drawing
+# is expected to serve it.
+ma-woman:
+  need: >-
+    A Moroccan woman who looks to be in her fifties, without a headscarf, in a
+    town: a street, a market, a shop or at home. She need not be holding a phone.
+    Whether a woman from another country who looks the part will do is still
+    open with the author.
+  search:
+    pexels:
+      - middle aged woman Tiznit
+      - middle aged Moroccan woman
+      - mature woman Agadir
+      - woman shopkeeper Morocco
+  preview:
+    templates: *band
+    copy: Répondez à une courte enquête et donnez *votre avis*.
