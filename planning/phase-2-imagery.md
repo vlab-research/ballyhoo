@@ -74,6 +74,29 @@ Researched from the providers' current docs and terms. Details that bind go into
 - **Indemnity:** Google indemnifies unmodified output of GA models on Vertex, not on the
   Developer API. Adobe indemnifies only with a purchased entitlement. BFL and fal do not.
 
+### Prices, checked 2026-09-14
+
+These are the `PRICE` tables in the provider modules, which `ballyhoo source` estimates from.
+
+| Provider, model | Price | Source |
+|---|---|---|
+| Gemini `gemini-3.1-flash-image` | $0.067 (1K), $0.101 (2K), $0.151 (4K) per image: $60 per 1M output tokens × 1120, 1680, 2520 tokens | [Vertex pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing), read only through search excerpts (the page would not render for the fetch tool). It matches the [Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing), updated 2026-09-11 |
+| Gemini `gemini-3-pro-image` | $0.134 (1K and 2K), $0.24 (4K): $120 per 1M output tokens | same |
+| fal `fal-ai/flux-2-pro` | $0.03 for the first megapixel, $0.015 for each extra, rounded up. 1024×1024 costs $0.03 and 1920×1080 $0.045, so a megapixel is 1024² px | [model page](https://fal.ai/models/fal-ai/flux-2-pro) |
+| fal `fal-ai/flux-2-max` | $0.07 for the first megapixel, $0.03 for each extra. The model page does not state the rounding; a fal learn page says rounded up (1920×1080 costs $0.10) | [model page](https://fal.ai/models/fal-ai/flux-2-max) |
+| Pexels | free; 200 requests an hour, 20,000 a month | [API documentation](https://www.pexels.com/api/documentation/) |
+| Openverse | nothing charged for anonymous requests; the terms reserve the right to charge for commercial or heavy use | [terms](https://docs.openverse.org/terms_of_service.html) |
+| Firefly Services | no published per-image price: it comes with an enterprise contract | [Firefly API docs](https://developer.adobe.com/firefly-services/docs/firefly-api/) (no pricing) |
+
+- Gemini's prices are for output images only. Prompt tokens, and any thinking tokens (billed at
+  the text output rate), add a little, so the estimate is a floor.
+- fal bills megapixels of input and output. Reference images sent to the edit endpoints add
+  to the count.
+- FLUX returns 1072×1072 when asked for 1080×1080; the estimate uses the size asked for.
+- Pexels's API docs describe only its preset `src` sizes. The `w`, `h` and `auto=compress`
+  parameters in those URLs are imgix-style and undocumented for custom use, so `source`
+  downloads `src.original` uncapped.
+
 ## Spike results
 
 - **Openverse, 2026-09-12: no use for people.** With CC0 and Public Domain Mark only,

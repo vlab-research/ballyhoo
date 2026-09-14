@@ -130,7 +130,8 @@ A candidates directory holds:
 
 | Path | What |
 |---|---|
-| `candidates.yaml` | one entry per candidate: `n`, `id`, `width`, `height`, `full` and `preview` (URLs, or paths in this directory), `thumb`, and the provenance record less `sha256`, `picked` and `fetched` |
+| `candidates.yaml` | one entry per candidate: `n`, `id`, `query` (for stock, the search that found it first), `width`, `height`, `full` and `preview` (URLs, or paths in this directory), `thumb`, and the provenance record less `sha256`, `picked` and `fetched` |
+| `originals/<id>.<ext>` | full-size stock files as delivered, when `source` made the directory; `full` and `preview` name them, and the record's `download_url` is the URL they came from |
 | `thumbs/<id>.jpg` | 640 px on the long edge, for review pages |
 | `sheet-01.png` … | contact sheets, 20 to a sheet, numbered by `n` |
 | `generated/<id>.<ext>` | generated images, as delivered |
@@ -152,6 +153,101 @@ provider delivered, never re-encoded (that would strip C2PA credentials); never
 overwrites a file; and refuses a download that is not a JPEG, PNG or WebP. None of
 the generators return transparency, so kept images are scenes, not cut-outs.
 
+## Briefs and runs
+
+A **brief** says what imagery a study needs. `source` searches and generates it
+into a **run**: a new folder of candidates, one candidates directory per need,
+for a person to rate.
+
+    uv run ballyhoo source brief.yaml --plan                  # print each request and the estimate; send nothing
+    uv run --env-file .env ballyhoo source brief.yaml         # into runs/<date>-<n>/ next to the brief
+    uv run ballyhoo source brief.yaml --providers pexels --out ../runs
+
+```yaml
+designs: designs                  # default ./designs, as in a copy file
+defaults:                         # shared by every need; each can be set per need instead
+  n: 2                            # results per query, images per prompt (default 2)
+  size: 1080x1080                 # the shape to generate (default: the first preview template's)
+  prompt_suffix: No text, signs or lettering anywhere in the image.   # appended to every prompt
+  preview:
+    templates: [photo-band/1080x1080]       # <design>/<W>x<H> in the designs directory
+    copy: "Take a short survey and get KES 100 airtime."
+
+ke-older-woman:
+  need: A Kenyan woman aged 60 or more, in a rural setting, using a mobile phone.
+  search:
+    pexels:                       # a query, or a list of queries
+      - older african woman mobile phone village
+      - kenyan grandmother phone
+  generate:
+    gemini: A Kenyan woman in her sixties outside her home, reading her phone.
+    fal:                          # the map form carries options
+      prompt: A Kenyan woman in her sixties outside her home.
+      model: fal-ai/flux-2-max    # default: the provider's model
+      seed: 81                    # default: --seed, else random
+```
+
+- Needs are a named map, and need names are lowercase slugs. `designs` and
+  `defaults` are reserved.
+- `need` is required: it is what a person rates candidates against. A need has
+  `search`, `generate`, or both.
+- Generation options: `prompt` (required), `model`, `seed`, and for Gemini
+  `image_size` (`1K`, `2K` or `4K`; default `2K`).
+- Paths resolve relative to the brief. Every mistake (unknown providers or keys, a
+  missing `need`, a template that does not exist) is reported together, and
+  nothing is sent.
+
+Before sending anything, `source` builds every request, which catches a missing
+credential or a size a provider cannot generate. The exception is Gemini's
+application default credentials, which only the first request tests. It then
+estimates the cost from the `PRICE` in each provider module, which records when
+and where the price was checked, and refuses:
+
+- a run estimated above `--max-cost`;
+- a model with no published price (Firefly), unless `--allow-unpriced`.
+
+The estimate is a floor: Gemini's prices are per output image, and prompt and
+thinking tokens add a little.
+
+| Flag | |
+|---|---|
+| `--plan` | print each request and the estimate; send and write nothing. Exits 1 if the run would be refused |
+| `--providers p,q` | only these providers' requests |
+| `--max-cost USD` | refuse a run estimated above this (default 2) |
+| `--allow-unpriced` | also run models with no published price |
+| `--seed N` | the first seed of generations whose brief sets none (default: random) |
+| `--out DIR` | the directory runs go in (default: `runs/` next to the brief) |
+
+```
+runs/2026-09-14-1/         <date>-<n>; a second run that day is -2, and no run is written into again
+  brief.yaml               the brief as it was run; its relative paths mean what they meant beside the original
+  manifest.yaml            what ran
+  ke-older-woman/          a candidates directory (above), with stock originals in originals/
+```
+
+One request's refusal or HTTP error is recorded, the other requests still run,
+and the exit status is non-zero.
+
+```yaml
+# manifest.yaml
+brief: ../../brief.yaml           # the original, relative to the run
+started: 2026-09-14T10:02:11Z
+finished: 2026-09-14T10:04:40Z
+ballyhoo: 3f9a…                   # digest of all of ballyhoo's code
+estimated_cost_usd: 0.33
+requests:
+- {need: ke-older-woman, provider: pexels, kind: search, query: kenyan grandmother phone, n: 2,
+   results: 2, new: 1, already_found: 1, seconds: 1.2, estimated_usd: 0.0}
+- {need: ke-older-woman, provider: gemini, kind: generate, model: gemini-3.1-flash-image, size: 1080x1080,
+   seeds: [81, 82], prompt: "…", images: 1, refused: 1, seconds: 27.4, estimated_usd: 0.202}
+errors:
+- 'ke-older-woman/gemini generate: seed 82: no image (finish reason IMAGE_SAFETY)'
+```
+
+For a search, `new` counts the results that no earlier query for the same need
+found in this run, and `already_found` counts the rest. A photo is downloaded
+once, and it keeps the first query that found it.
+
 ## What fails a creative
 
 | Check | Fails when |
@@ -170,9 +266,10 @@ never holds an ad that does not pass.
 
 ## Caching
 
-Each PNG stores a hash of its inputs: ballyhoo's own code, the text, the
-template, and every file the template references. A render is skipped when the
-hash matches, so editing one headline re-renders only that creative.
+Each PNG stores a hash of its inputs: the code rendering runs (`render.py` and
+every module it imports, so not the sourcing code), the text, the template, and
+every file the template references. A render is skipped when the hash matches,
+so editing one headline re-renders only that creative.
 
 ## Code layout
 
@@ -187,10 +284,12 @@ a pure function, and the browser only measures and takes screenshots.
 | `checks.py` | whether a render passes |
 | `provenance.py` | whether an image's provenance record is complete and belongs to that image |
 | `candidates.py` | the candidates file, ids, contact-sheet layout, and what keeping a pick writes |
-| `providers/` | each API's requests, and candidates or images from its replies |
+| `brief.py` | what a brief sources: validates it, expands it into jobs, estimates their cost, checks every request can be built, names runs |
+| `providers/` | each API's requests, candidates or images from its replies, and its prices |
 | `render.py` | nothing; it is the shell. Reads files, drives Chrome, writes PNGs |
 | `art.py` | nothing; the shell for provenance. Hashes images, reads and writes sidecars |
-| `sourcing.py` | nothing; the shell for candidates and providers. Sends requests, polls queues, draws sheets, writes kept images |
+| `sourcing.py` | nothing; the shell for candidates and providers. Sends requests, polls queues, downloads originals, draws sheets, writes kept images |
+| `runs.py` | nothing; the shell for briefs. Makes the run folder, runs each job through `sourcing`, writes the manifest |
 | `cli.py` | the `ballyhoo` command |
 
 ## Tests
@@ -206,6 +305,12 @@ a pure function, and the browser only measures and takes screenshots.
   files, without a browser.
 - `tests/integration/test_sourcing.py` runs search, generation (including queued
   providers), contact sheets and `keep` against a mock HTTP transport: no network.
+- `tests/integration/test_source.py` runs `ballyhoo source` on briefs with
+  `tests/fake_provider.py`, a provider registered only in tests. It answers through a
+  mock transport and draws bright, dark and small images at test time. The query or
+  prompt picks the image, "error" gets a 503, and seed 13 is refused.
+- `tests/integration/test_code_digest.py` checks that the render cache's code digest
+  covers the modules rendering imports and not the sourcing ones.
 - `tests/integration/test_lac_designs.py` runs the seven LAC templates with stand-in
   art drawn by `tests/lac_art.py`: a snapshot of every creative's font size and line
   count (`tests/fixtures/lac/expected.yaml`), and a regression test for each bug

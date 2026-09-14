@@ -1,8 +1,8 @@
 # Plan: briefs, runs and review — the imagery pipeline end to end
 
-**Status: plan, 2026-09-13. Nothing in this file is built.** It continues
-`planning/phase-2-imagery.md`, whose increments 1–4 (provenance, candidates, stock and
-generation providers) are built. The author delegated the decisions below ("do what you
+**Status: step 1 (brief and source) built 2026-09-14; steps 2–5 are still a plan.** It
+continues `planning/phase-2-imagery.md`, whose increments 1–4 (provenance, candidates, stock
+and generation providers) are built. The author delegated the decisions below ("do what you
 think is best for now"); revisit any of them freely before building. Delete this file
 when the steps are done and their lessons are in `docs/design.md`.
 
@@ -15,13 +15,11 @@ when the steps are done and their lessons are in `docs/design.md`.
   pixel-exact), `README.md` (§ Provenance, § Sourcing images), `docs/design.md` (§ Phase 2),
   `planning/phase-2-imagery.md` (API findings and spike results), then this file.
 - **Tests:** `uv run pytest -m "not browser"` (about 1 s), `uv run pytest` (about 50 s).
-  122 pass on the branch.
-- **Credentials:** `.env` in the main checkout holds `PEXELS_API_KEY` and a fal key named
-  `FAL_API_KEY` (the code reads `FAL_KEY`: rename it, or map it when running). The worktree
-  has no `.env` of its own, so run `uv run --env-file ../ballyhoo/.env ballyhoo …`. Gemini uses
-  gcloud application default credentials (they work) plus `GOOGLE_CLOUD_PROJECT`; the spikes
-  used `toixotoixo`, but the author has not said which project should pay. There are no
-  Firefly credentials.
+  154 pass on the branch.
+- **Credentials:** `.env` in the main checkout holds `PEXELS_API_KEY`, `FAL_KEY` and
+  `GOOGLE_CLOUD_PROJECT`. The worktree has no `.env` of its own, so run
+  `uv run --env-file ../ballyhoo/.env ballyhoo …`. Gemini also uses gcloud application default
+  credentials (they work). There are no Firefly credentials.
 - **Called live:** Openverse and Gemini (2026-09-12), Pexels (2026-09-13), fal (2026-09-14).
   **Never called live:** Firefly.
 - **The art library has provenance** (2026-09-14): every image in `recruitment-creative/` has a
@@ -202,7 +200,7 @@ pass `{"fake": fake_provider}`.
 
 Each step ends with the suite green, a commit, and the docs updated in a separate commit.
 
-### 1. Brief and source
+### 1. Brief and source (built 2026-09-14)
 
 `brief.py`, `runs.py` (sourcing only), `ballyhoo source BRIEF [--plan] [--providers p,q]
 [--max-cost 2] [--allow-unpriced] [--out DIR]`.
@@ -216,6 +214,51 @@ Each step ends with the suite green, a commit, and the docs updated in a separat
   other needs; the exit status is non-zero.
 - Tests: unit tests for brief parsing, expansion, cost and run naming. An integration test
   (no browser) runs `source` with the fake provider through `httpx.MockTransport`.
+
+**Built as planned, with these differences:**
+
+- `--out DIR` is the directory runs go in, not the run itself. `--seed N` was added (as on
+  `generate`); without it a run's seeds are random.
+- Before any request, `brief.request_problems` builds every request without sending it, so a
+  missing credential or a size the provider refuses (Gemini's aspect ratios) stops the run
+  while it is free. It cannot check Gemini's application default credentials.
+- The manifest's `ballyhoo` is a digest of the whole package, not the render digest: a run
+  depends on the sourcing code, which the render digest now leaves out. Each request also
+  records `seconds` and `estimated_usd`; a generation records `size`, its options and `prompt`;
+  a search records `new` and `already_found`, because the author tunes queries and needs to see
+  how much each one adds.
+- Stock candidates' `full` and `preview` name the downloaded `originals/<id>.<ext>`, their
+  record gains `download_url`, and thumbnails are made from the original (no second download).
+  Each `candidates.yaml` entry shows `query` beside its id.
+- Stock originals are **not capped** (see `docs/design.md` § Judging imagery). `download_url` is
+  Pexels's `src.original`.
+- `sourcing.generate` returns refusals separately from errors, for the manifest's `refused`.
+- `n` defaults to 2. An explicit `size` (in the need or in `defaults`) wins over the preview
+  template's size. `preview` is optional for now.
+- The provider registry is `cli.PROVIDERS`, keyed by each module's `NAME` (stock providers
+  gained one); `runs` takes it as an argument, and tests pass `{"fake": fake_provider}`.
+- Every provider has `PRICE` and `search_price` or `image_price`; Gemini also lists
+  `OPTIONS` (`image_size`). Prices and their sources are in `planning/phase-2-imagery.md`.
+- The render cache's `code_digest` now covers only `render.py` and what it imports
+  (`cache.code_modules`), so the new modules re-render nothing. Merging the branch still
+  re-renders every study once, because `render.py` and `cache.py` changed.
+
+**For step 2:**
+
+- `Need.templates` and `Need.copy` are parsed and checked (a template must exist) but not
+  used yet. Decide whether preview requires them.
+- `tests/fake_provider.py` draws `bright` and `dark` images at 1600×1200 for stock and at the
+  requested size for generation, and `small` ones at 400×400. Its dark palette is
+  near-black (28, 28, 32), so a dark-headline contrast failure needs the headline over the scene,
+  not over an opaque band. Make the smoke template's band translucent, or put the headline
+  directly on the scene.
+- Previews are written into an existing run, which `source` never reuses. The manifest is
+  written once, when `source` ends; if preview needs its own record, add a file rather than
+  editing the manifest.
+
+**For step 3:** `sourcing.keep` already reads a candidate's `full` as a path relative to the
+candidates directory, so keeping from a run copies the rated bytes from `originals/` or
+`generated/` without any change.
 
 ### 2. Scene slot and preview
 
@@ -296,15 +339,16 @@ Pexels and Gemini.
 
 ## Things to verify while building
 
-- Pexels originals can be 20+ MB. `images.pexels.com` URLs take imgix-style parameters
-  (`?auto=compress&w=2160`); check that a capped download still counts as the photo, and
-  record the URL actually fetched in the provenance.
+- ~~Pexels originals can be 20+ MB; cap them with imgix-style parameters?~~ Settled in step 1:
+  not capped. Pexels documents only its preset sizes, not custom `w`/`h`, and resized copies
+  are re-encoded. The URL fetched is recorded as `download_url`.
 - Setting `#scene`'s `src` to a `file://` path outside the template's directory, with
   `--allow-file-access-from-files`, and that `decode()` waits for the new image, not the
   placeholder.
-- The `code_digest` render cache hashes every `*.py` in the package, so adding modules
-  re-renders every study's ads once. Consider excluding `providers/`, `sourcing.py` and the
-  new pipeline modules from it.
+- ~~The `code_digest` render cache hashes every `*.py` in the package.~~ Settled in step 1: it
+  follows `render.py`'s imports instead, so sourcing and pipeline modules are left out without
+  having to be listed. If step 2's `render.py` imports `preview.py`, that module is covered
+  automatically.
 
 ## Open questions for the author (carried over)
 

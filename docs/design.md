@@ -231,7 +231,7 @@ rectangles. *Never matte a figure out of a flattened PNG* still holds; a cut-out
 needs a background-removal step (a matting model on an image generated against a
 plain background) with its own mask check.
 
-### Judging imagery (planned: `planning/imagery-pipeline.md`)
+### Judging imagery (briefs and runs built; preview and review planned in `planning/imagery-pipeline.md`)
 
 Whether an image is right for a study is a human judgement, but much of what makes
 it wrong for an ad is not. The pipeline runs from a **brief** (what is needed,
@@ -248,6 +248,27 @@ working ad, and a person rates the rest against the need.
   one.
 - **Runs are compared, not overwritten.** Tuning a prompt or choosing a provider
   is a comparison of verdicts across runs.
+- **Queries are what gets tuned.** Photos come from stock, so a run records, per
+  query, how many results were new and how many an earlier query had already
+  found, and every candidate keeps the query that found it.
+- **Spending is refused before it happens, not after.** `--plan` sends nothing.
+  Every request is built before any is sent, so a missing credential or a size a
+  provider cannot make stops the run while it is still free. The estimate comes
+  from prices written into each provider module with the date they were checked:
+  a price in code goes stale, and the date says how stale. A provider with no
+  published price counts as over the limit.
+- **Stock originals are downloaded whole, as delivered.** Pexels originals reach
+  20 MB, and its image host accepts imgix-style `w`/`h` parameters that would cap
+  them. But Pexels does not document those parameters, and a resized copy is
+  re-encoded (with imgix, `auto=compress` means quality 45 with the metadata
+  stripped). The whole file is the photographer's own bytes, and it is exactly what
+  is previewed, rated and kept. If art-library size becomes a problem, shrink at
+  `keep`, as a recorded step.
+- **The render digest follows imports.** It hashed every module in the package, so
+  adding sourcing code would have re-rendered every study's ads without changing a
+  pixel. It now covers `render.py` and whatever that imports, found by following
+  relative imports. Nobody has to remember to list a module, so a list cannot go
+  stale and leave an out-of-date ad in place.
 
 ## Phase 3 sketch: generated layouts
 
