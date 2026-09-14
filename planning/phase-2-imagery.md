@@ -27,7 +27,7 @@ acceptance test for this phase.
 | **Photos come from stock; image models make drawings** (illustrated figures used as cut-outs, like the partner character art), never photographs. The work on photos is in the search queries, which people and agents both iterate on. | Author, 2026-09-14 |
 | **No one looks older than middle age**, even for a 60+ stratum: people identify with someone younger. Recorded, with its reason, in `docs/creative-rules.md` (on `main`). | Author, 2026-09-14 |
 | **Drawings are prompted in words for the house style**, from the author's past prompts, not given existing art as reference images. The existing art was generated in the author's own account, so references are permitted if that changes. | Author, 2026-09-14 |
-| The author's past process for cut-outs: generate in Firefly, then Adobe Express's automatic remove background. The ballyhoo equivalent is being spiked (a matting model or a chroma key, scored against those Express cut-outs). | Author, 2026-09-14 |
+| The author's past process for cut-outs: generate in Firefly, then Adobe Express's automatic remove background. The spike settled ballyhoo's equivalent: generate the figure on flat green and remove it with a numpy chroma key, checked by a mask check (§ Spike results). | Author, 2026-09-14 |
 
 ## Findings: the APIs as of 2026-09-12
 
@@ -216,6 +216,71 @@ These are the `PRICE` tables in the provider modules, which `ballyhoo source` es
     local rembg (pin `birefnet-general`; its default model needs a commercial licence), or a
     chroma key on a solid background. Matting models tend to drop thin strokes and white fills
     in line art.
+- **Background removal, 2026-09-14** (about $1.98). Each of the 11 Express cut-outs in
+  `recruitment-creative/characters/` was placed on white, grey and green, and each method's mask
+  was scored against Express's alpha.
+  - **A numpy chroma key on green matches Express best:** IoU 0.997 mean and 0.991 worst,
+    0% lost, 0.2 s, free.
+    - It estimates the key colour from the image border and ramps alpha between colour
+      distances 30 and 110.
+    - It removes green blended into edge pixels and despills. Despill triggers on green
+      dominance, not the exact key colour, because generated green varies from (9,193,18) to
+      (8,251,5).
+  - **The same key on white or grey fails** (IoU 0.88 and 0.78): it eats white fills.
+  - **Matting models score about the same shape** (IoU 0.99). These are rembg with
+    `birefnet-general-lite` (16 s on CPU), fal `birefnet/v2` ($0.001–0.002) and Bria ($0.018).
+    - On green they leave a green cast in 34% of the edge band.
+    - On white they leave white slabs in concave gaps.
+    - Contrary to the research, they did not eat thin strokes or white fills on this art.
+  - **Image-to-image generation cannot remove a background.**
+    - Gemini asked for transparency returns an opaque PNG with a checkerboard painted in.
+    - Asked to re-ground a figure onto green, Gemini keeps it close (mean RGB change 4–17).
+    - FLUX.2 pro redraws 14–27% of pixels.
+  - **Gemini paints the phone screen's glow into the green**, which no remover can fix; the
+    prompt must forbid glow. Vertex refused "young woman" as possibly a child, so state an
+    adult age.
+  - **The mask check the spike calibrated** flags nothing on Express's cut-outs and catches
+    fake transparency, bad white keys and green fringes. It requires:
+    - 5–95% of the area transparent;
+    - no stray specks;
+    - at most 1% soft alpha;
+    - residual green at most 0.3% of the figure and 2% of the edge band;
+    - painted green light at most 0.15% (provisional, from 4 images);
+    - agreement with a colour key.
+
+    It cannot see white slabs on white, or a figure a generator redrew. A person looks at each
+    cut-out once, when it is adopted.
+- **Drawings, 2026-09-14** (57 images, about $5.23): the author's prompts on
+  `gemini-3.1-flash-image`, `gemini-3-pro-image` and `fal-ai/flux-2-pro`.
+  - **Benchmark: Firefly wins every prompt.** The author's exact Firefly prompts reproduce
+    `cool-cats`, `survey-hamster`, `ke-woman-phone` and `ke-man-phone` (matched by eye, high
+    confidence), and none of the three models comes close.
+    - "Technical drawing" becomes a blueprint with dimension lines and labels.
+    - "Line drawing of a cool woman in Nairobi" becomes a full-length street scene with
+      signs, "NAIROBI COOL" lettering and real brands (Safaricom, Equity Bank).
+    - Firefly gives one large waist-up figure, no scenery and no text. Other models need that
+      stated.
+  - **The pastel prompt on the smoke needs**, subject lines in the fifties, white and green
+    backgrounds, cut out with the key or birefnet:
+    - **Gemini Flash** draws the style best, and is the only model that reliably returns a
+      flat, near-pure green (6 of 6).
+    - **Gemini Pro** draws well but treats "background" as a picture on a page, adding frames
+      and mats.
+    - **FLUX** repeats one face, returns sage or lime green, and wrote "BUENOS AIRES" on a
+      jacket.
+    - **"No text" in the prompt worked:** no text in any of the 36 images.
+  - **Against the audience rule, few pass.**
+    - "Not pretty… would never be a model", plus the fifties and "extremely detailed",
+      produced tired, lined, documentary faces.
+    - Flash put every Moroccan in a djellaba or kaftan. Several "Kenyan" women read as European.
+    - The author's own art (`man-scarf`, `woman-round-glasses`) reads that phrase as stylish
+      people with a quirk or two, which is still to confirm with the author.
+  - **Brief shape:**
+    - named styles (precise pastel, bright line, black-and-white technical, coloured-pencil
+      technical);
+    - prompts assembled from a subject line, the style text with guards ("no dimension lines,
+      labels or annotations"), framing (waist-up, nothing cropped but the body) and a
+      background suffix chosen by the remover.
 
 ## Provenance sidecar
 
