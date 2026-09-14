@@ -1,7 +1,8 @@
 # Plan: briefs, runs and review — the imagery pipeline end to end
 
 **Status: steps 1 (brief and source), 2 (scene slot and preview) and 3 (verdicts and review)
-built 2026-09-14; steps 4 and 5 are still a plan.** It continues `planning/phase-2-imagery.md`, whose increments 1–4
+built 2026-09-14; step 4's first live run made 2026-09-14, with the author's ratings pending;
+step 5 is still a plan.** It continues `planning/phase-2-imagery.md`, whose increments 1–4
 (provenance, candidates, stock and generation providers) are built. The author delegated the
 decisions below ("do what you think is best for now"); revisit any of them freely before
 building. Delete this file when the steps are done and their lessons are in `docs/design.md`.
@@ -22,7 +23,7 @@ means a new slot value and its checks, not a restructuring.
   pixel-exact), `README.md` (§ Provenance, § Sourcing images), `docs/design.md` (§ Phase 2),
   `planning/phase-2-imagery.md` (API findings and spike results), then this file.
 - **Tests:** `uv run pytest -m "not browser"` (about 1 s), `uv run pytest` (about 50 s).
-  202 pass on the branch, 22 of them in a browser.
+  205 pass on the branch, 22 of them in a browser.
 - **Credentials:** `.env` in the main checkout holds `PEXELS_API_KEY`, `FAL_KEY` and
   `GOOGLE_CLOUD_PROJECT`. The worktree has no `.env` of its own, so run
   `uv run --env-file ../ballyhoo/.env ballyhoo …`. Gemini also uses gcloud application default
@@ -396,18 +397,94 @@ with a `made` sidecar, so the template also renders on its own.
 - Drawings for `#figure` are not built; their candidates would show `prompt`, `model` and
   `seed` on the page already, but preview fills only `#scene`.
 
-### 4. Smoke brief and the first live run
+### 4. Smoke brief and the first live run (run 2026-09-14; the author's ratings are pending)
 
-`smoke/brief.yaml`: three needs × two images, Pexels and Gemini at 1K. Estimated under $1.
-Suggested needs: Kenyan woman 60+ rural; Moroccan woman 60+ unveiled in a town; Moroccan man
-60+ rural south.
+`smoke/brief.yaml`: three needs, each a woman or man who looks to be in their fifties, with
+four Pexels queries of eight results. It is stock only, since photos come from stock and
+drawings are not built:
 
-1. Run `uv run --env-file ../ballyhoo/.env ballyhoo source smoke/brief.yaml`, then
-   `ballyhoo review runs/<run>`.
-2. The author rates the candidates.
-3. Record what the verdicts say (keep rate per provider, common issues) in
-   `planning/phase-2-imagery.md` § Spike results, and adjust the brief's prompts.
-4. README: a *Smoke test* section with those two commands.
+- `ke-woman`: a Kenyan woman in her fifties, rural;
+- `ma-man`: a Moroccan man in his fifties, in the rural south;
+- `ma-woman`: an unveiled Moroccan woman in her fifties, in a town. This is the known gap. It
+  stays in the brief so each run shows whether stock still lacks it.
+
+Each need says a visible phone is not required and that look-alikes from other countries are
+still an open question. Queries follow the spikes' lessons: short, small towns, no "phone", no
+clothing words, no negation. Preview copy is English for Kenya and French for Morocco, because
+Hind has no Arabic glyphs. `tests/integration/test_smoke_brief.py` keeps the brief parsing and
+its wording within the age rule, without a network.
+
+**What ran**, into `smoke/runs/2026-09-14-1` (gitignored):
+
+1. `uv run --env-file ../ballyhoo/.env ballyhoo source smoke/brief.yaml --plan`: 12 requests, $0.00.
+2. The same without `--plan`: 12 searches in 2 minutes, 0 errors. It found 85 candidates
+   (ke-woman 28, ma-man 27, ma-woman 30) and 198 MB of originals, 1667×2500 to 7952×5304.
+3. `uv run ballyhoo preview smoke/runs/2026-09-14-1`: 85 previews in 5 min 54 s (401 s of CPU),
+   0 errors. 23 pass and 62 fail, and every failure is contrast under the 25% band:
+   ke-woman 11 pass and 17 fail, ma-man 8 and 19, ma-woman 4 and 26. The English copy set at
+   84 px on 2 lines, the French at 78 px on 3.
+4. An agent pre-rated every candidate into `agent-verdicts.yaml`, then ran
+   `ballyhoo review RUN --summary --agent` (below).
+5. `ballyhoo review RUN --port 0` served the page (editable), thumbnails and previews. A path
+   outside the run got 404, and a request with another `Host` got 403.
+
+**Nothing broke on real Pexels replies.** Checked in particular:
+
+- **EXIF orientation:** every original is orientation 1, and every recorded size matches its file.
+- **Alt text:** every photo has one.
+- **Duplicates:** 4, 5 and 2 photos per need came back from more than one query, and each query
+  is credited. Two photos were candidates of both women's needs, rated per need.
+- **Upscaling:** portrait photos under `object-fit: cover` drew at 0.20x to 0.65x, never near
+  1.25x. Pexels originals are always big enough for a 1080 px ad.
+- **Preview timing:** a render takes about 2 s, and writing its PNG 0.3 to 0.6 s; a 7952×5304
+  original adds 0.6 to 1.7 s over a 1600 px copy of the same photo. The four workers reached only
+  120% CPU, because each render's screenshots become arrays and are checked in Python on the one
+  event loop. Fine for a smoke run; run the checks off the loop if runs grow.
+- **Stopping the server:** `review` started as a background job of a non-interactive shell
+  inherits SIGINT as ignored, so "Ctrl+C stops" does not apply. Stop it with SIGTERM.
+
+**Findings:**
+
+- **The template's centre crop puts faces under the headline.** Most people shots are portrait
+  head-and-shoulders. `cover` centred on a square, under a band across the top third, runs the
+  headline over the forehead or eyes in 8 of the 10 photos the agent rated keep or maybe.
+  Nothing detects it (the face check under step 5). A per-template or per-candidate
+  `object-position` is the likely fix; the author decides.
+- **The checks and the need barely overlap.** Of the 23 candidates that pass the checks, the
+  agent dropped 20. Of the 7 it rated keep or maybe that fail, all fail contrast under this
+  deliberately translucent band; a study's opaque band would pass them.
+- **Alt text predicts age.** It says "elderly", "senior" or "elder" for 38 of the 85; the agent
+  marked 38 `age`, 32 of them the same photos. "middle aged" in a query does not stop this.
+- **`ma-woman` found no fit, as the spikes did.** Every woman wears a headscarf and half read as
+  elderly, and "woman shopkeeper Morocco" returns men in souks.
+
+**The agent's verdicts** (`claude-code (claude-opus-5)`, graded strictly against the need and
+`docs/creative-rules.md`). A photo found by two queries counts for both, and "new" is what
+`source` reported as not already found.
+
+| Need | Query | New | Keep | Maybe | Drop |
+|---|---|---|---|---|---|
+| ke-woman | middle aged woman farmer Kenya | 8 | 0 | 2 | 6 |
+| ke-woman | middle aged Kenyan woman | 8 | 0 | 2 | 6 |
+| ke-woman | mature woman Kenya village | 6 | 0 | 0 | 8 |
+| ke-woman | middle aged woman Nyeri | 6 | 0 | 0 | 8 |
+| ma-man | middle aged man Tiznit | 8 | 0 | 2 | 6 |
+| ma-man | middle aged man Taroudant | 4 | 1 | 1 | 6 |
+| ma-man | Moroccan village man | 8 | 0 | 2 | 6 |
+| ma-man | middle aged farmer Morocco | 7 | 1 | 1 | 6 |
+| ma-woman | each of its four queries | 8, 7, 7, 8 | 0 | 0 | 8 |
+
+Per need: ke-woman 0 keep and 4 maybe of 28; ma-man 1 keep (4%, `pexels-12573207`) and 5 maybe of
+27; ma-woman 0 of 30. The commonest issues are `off-brief` (59) and `age` (38), then `tourist`
+(15) and `crop` (8).
+
+**Still to do:**
+
+1. The author rates the run on its review page (`ballyhoo review smoke/runs/2026-09-14-1`),
+   saving `verdicts.yaml`.
+2. Compare the author's summary with the agent's (`--summary` and `--summary --agent`), record
+   the keep rate per query in `planning/phase-2-imagery.md` § Spike results, and adjust the queries.
+3. Decide how photo templates place a portrait photo (above).
 
 ### 5. Later, not planned in detail
 

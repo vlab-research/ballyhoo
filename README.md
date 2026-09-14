@@ -196,6 +196,9 @@ ke-older-woman:
   `defaults` are reserved.
 - `need` is required: it is what a person rates candidates against. A need has
   `search`, `generate`, or both.
+- A setting in a need replaces the default whole: a need's `preview` names its `templates`
+  as well as its `copy`, even to change only the headline (a YAML anchor saves repeating
+  them, as `smoke/brief.yaml` does).
 - Generation options: `prompt` (required), `model`, `seed`, and for Gemini
   `image_size` (`1K`, `2K` or `4K`; default `2K`).
 - Paths resolve relative to the brief. Every mistake (unknown providers or keys, a
@@ -400,6 +403,23 @@ started. It refuses a run with no `verdicts.yaml` (agent verdicts or not), a nee
 no candidates in the run, and a need with no keeps. Like every `keep`, it never
 overwrites a file.
 
+## Smoke test
+
+`smoke/brief.yaml` runs the imagery pipeline end to end on real Pexels replies: three
+needs, four queries of eight results each, stock only and free. Run it after changing
+sourcing, preview or review, and use its summary to tune queries.
+
+    uv run --env-file .env ballyhoo source smoke/brief.yaml     # into smoke/runs/<date>-<n>/; needs PEXELS_API_KEY
+    uv run ballyhoo preview smoke/runs/<run>                    # render and check every candidate
+    uv run ballyhoo review smoke/runs/<run>                     # rate on the page
+    uv run ballyhoo review smoke/runs/<run> --summary           # keep rate per need and query
+
+- `ma-woman`, an unveiled Moroccan woman in her fifties, is the known gap: Pexels has
+  almost none. It stays in the brief so each run shows whether that is still true.
+- pytest never runs it. `tests/integration/test_smoke_brief.py` checks, without a network,
+  that the brief parses, its templates exist, its requests build, and it asks for no one
+  older than middle age.
+
 ## What fails a creative
 
 | Check | Fails when |
@@ -475,6 +495,9 @@ a pure function, and the browser only measures and takes screenshots.
   and nothing outside it, a save refused with every problem, a save written. It then runs
   `keep --verdicts` and its refusals, and `review --summary`. One browser test rates on the
   page, saves, and checks the read-only copy.
+- `tests/integration/test_smoke_brief.py` checks that the committed smoke brief parses, its
+  templates exist, its Pexels requests build, and no need or query asks for anyone older
+  than middle age. No network.
 - `tests/integration/test_code_digest.py` checks that the render cache's code digest
   covers the modules rendering imports and not the sourcing ones.
 - `tests/integration/test_lac_designs.py` runs the seven LAC templates with stand-in

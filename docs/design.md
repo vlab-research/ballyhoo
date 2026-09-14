@@ -238,7 +238,7 @@ like the partner's characters, which a later step places in a `#figure` slot, wh
 the collision check already applies. How they are drawn and cut out is not settled.
 Preview fills only `#scene` for now.
 
-### Judging imagery (briefs, runs, preview and review built; the smoke run is next in `planning/imagery-pipeline.md`)
+### Judging imagery (briefs, runs, preview and review built; the first smoke run is in `planning/imagery-pipeline.md`)
 
 Whether an image is right for a study is a human judgement, but much of what makes
 it wrong for an ad is not. The pipeline runs from a **brief** (what is needed,
