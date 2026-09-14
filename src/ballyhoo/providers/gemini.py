@@ -16,7 +16,19 @@ AUTH = "google-adc"
 PROJECT = "GOOGLE_CLOUD_PROJECT"
 MODEL = "gemini-3.1-flash-image"
 IMAGE_SIZES = ("1K", "2K", "4K")
+IMAGE_SIZE = "2K"
+OPTIONS = ("image_size",)
 ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
+# USD per output image, standard online requests. Prompt tokens, and thinking tokens if a
+# request uses them, add a little, so an estimate from these is a floor.
+PRICE = {
+    "checked": "2026-09-14",
+    "source": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+    "per_image": {
+        "gemini-3.1-flash-image": {"1K": 0.067, "2K": 0.101, "4K": 0.151},
+        "gemini-3-pro-image": {"1K": 0.134, "2K": 0.134, "4K": 0.24},
+    },
+}
 
 
 class Refused(Exception):
@@ -32,7 +44,12 @@ def aspect_ratio(width, height):
     return ratio
 
 
-def generate_request(prompt, seed, width, height, env, token, model=MODEL, image_size="2K"):
+def image_price(model, width, height, image_size=IMAGE_SIZE):
+    """USD per image, or None for a model or size without a known price."""
+    return PRICE["per_image"].get(model, {}).get(image_size)
+
+
+def generate_request(prompt, seed, width, height, env, token, model=MODEL, image_size=IMAGE_SIZE):
     if image_size not in IMAGE_SIZES:
         raise ValueError(f"image size {image_size!r} must be one of {', '.join(IMAGE_SIZES)}")
     project = credential(env, PROJECT)

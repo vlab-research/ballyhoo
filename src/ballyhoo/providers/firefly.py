@@ -19,10 +19,18 @@ POLL_SECONDS = 15
 SCOPES = "openid,AdobeID,session,additional_info,read_organizations,firefly_api,ff_apis"
 ASPECT_RATIOS = ("1:1", "4:3", "3:4", "16:9", "9:16")
 UNFINISHED = ("pending", "running", "cancel_pending")
+# Adobe publishes no per-image price for the API: it comes with an enterprise contract.
+PRICE = {"checked": "2026-09-14", "source": "https://developer.adobe.com/firefly-services/docs/firefly-api/",
+         "per_image": {}}
 
 
 class Refused(Exception):
     pass
+
+
+def image_price(model, width, height):
+    """None: an estimate cannot include Firefly."""
+    return PRICE["per_image"].get(model)
 
 
 def token_request(env):

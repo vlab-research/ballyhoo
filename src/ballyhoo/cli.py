@@ -121,7 +121,7 @@ def run_generate(ap, args):
     provider = GENERATORS[args.provider]
     options = {}
     if provider is gemini:
-        options["image_size"] = args.image_size or "2K"
+        options["image_size"] = args.image_size or gemini.IMAGE_SIZE
     elif args.image_size:
         ap.error(f"--image-size applies to gemini, not {args.provider}")
     seed = secrets.randbelow(2**31) if args.seed is None else args.seed

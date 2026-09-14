@@ -4,11 +4,21 @@ Only CC0 and Public Domain Mark images: CC BY and the other licences need a
 credit that an ad cannot carry. Openverse does not verify licences, so the
 record keeps the page the image came from for checking by hand.
 """
+import math
+
 from ..candidates import Candidate
 from . import Request
 
+NAME = "openverse"
 MAX_PAGE_SIZE = 20  # the most an anonymous request may ask for
 LICENCES = {"cc0": "CC0", "pdm": "Public Domain Mark"}
+PRICE = {"checked": "2026-09-14", "source": "https://docs.openverse.org/api/reference/authentication_and_throttling.html",
+         "per_request": 0.0}
+
+
+def search_price(n):
+    """USD for a search of `n` results: Openverse charges nothing for anonymous requests."""
+    return PRICE["per_request"] * math.ceil(n / MAX_PAGE_SIZE)
 
 
 def search_request(query, page, per_page, env):
