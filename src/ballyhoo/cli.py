@@ -1,13 +1,15 @@
 import argparse
+import os
 import re
 import secrets
 from pathlib import Path
 
-from . import art, candidates, provenance, render, sourcing
+from . import art, brief, candidates, provenance, render, runs, sourcing
 from .providers import MissingCredential, fal, firefly, gemini, openverse, pexels
 
-STOCK = {"openverse": openverse, "pexels": pexels}
-GENERATORS = {"fal": fal, "firefly": firefly, "gemini": gemini}
+PROVIDERS = {p.NAME: p for p in (fal, firefly, gemini, openverse, pexels)}
+STOCK = {name: p for name, p in PROVIDERS.items() if hasattr(p, "search_request")}
+GENERATORS = {name: p for name, p in PROVIDERS.items() if hasattr(p, "generate_request")}
 
 
 def main(argv=None):
@@ -61,6 +63,16 @@ def main(argv=None):
     k.add_argument("--to", type=Path, required=True, help="the art directory, e.g. scenes/")
     k.add_argument("--picked-by", required=True, help="the person who picked them")
     k.set_defaults(run=run_keep)
+
+    b = sub.add_parser("source", help="search and generate what a brief asks for, into a new run folder")
+    b.add_argument("brief", type=Path)
+    b.add_argument("--plan", action="store_true", help="print each request and the estimated cost; send and write nothing")
+    b.add_argument("--providers", help="only these providers, e.g. pexels,gemini")
+    b.add_argument("--max-cost", type=float, default=2.0, help="refuse a run estimated above this many USD (default 2)")
+    b.add_argument("--allow-unpriced", action="store_true", help="run providers with no published price, such as firefly")
+    b.add_argument("--seed", type=int, help="the first seed of generations whose brief sets none (default: random)")
+    b.add_argument("--out", type=Path, help="the directory runs go in (default: runs/ next to the brief)")
+    b.set_defaults(run=run_source)
 
     args = ap.parse_args(argv)
     return args.run(ap, args)
@@ -127,17 +139,57 @@ def run_generate(ap, args):
     seed = secrets.randbelow(2**31) if args.seed is None else args.seed
     with sourcing.client() as http:
         try:
-            found, errors = sourcing.generate(http, provider, args.prompt, args.n, seed, int(size[1]), int(size[2]),
-                                              args.out, model=args.model, **options)
+            found, refused, errors = sourcing.generate(http, provider, args.prompt, args.n, seed, int(size[1]),
+                                                       int(size[2]), args.out, model=args.model, **options)
         except (MissingCredential, ValueError) as e:
             print(f"FAIL  {e}")
             return 1
         merged, sheets = sourcing.add_candidates(args.out, found, http)
-    for e in errors:
+    for e in refused + errors:
         print(f"FAIL  {e}")
     print(f"{len(found)} generated (seeds from {seed}), {len(merged)} candidates in {args.out / candidates.FILE}")
     for sheet in sheets:
         print(f"sheet {sheet}")
+    return 1 if refused or errors else 0
+
+
+def print_plan(jobs, costs, max_cost):
+    for job, cost in zip(jobs, costs):
+        price = "no published price" if cost is None else f"${cost:.2f}"
+        count = f"{job.n} {'results' if job.kind == 'search' else 'images'}"
+        print(f"plan  {job.need}/{job.provider} {job.kind}, {count}, {price}")
+        for key, value in brief.describe(job).items():
+            if key not in ("need", "provider", "kind", "n"):
+                print(f"        {key}: {value}")
+    estimate = sum(c for c in costs if c is not None)
+    print(f"{len(jobs)} requests, estimated ${estimate:.2f} (--max-cost ${max_cost:.2f})")
+
+
+def run_source(ap, args):
+    if not args.brief.is_file():
+        ap.error(f"{args.brief}: no such brief")
+    only = None
+    if args.providers is not None:
+        only = [p.strip() for p in args.providers.split(",") if p.strip()]
+        if not only:
+            ap.error("--providers needs at least one provider name")
+    seed = secrets.randbelow(2**31) if args.seed is None else args.seed
+    jobs, costs, errors = runs.plan(args.brief, PROVIDERS, os.environ, only, seed, args.max_cost, args.allow_unpriced)
+    if args.plan:
+        print_plan(jobs, costs, args.max_cost)
+    for e in errors:
+        print(f"FAIL  {e}")
+    if errors or args.plan:
+        return 1 if errors else 0
+    with sourcing.client() as http:
+        run, records, errors = runs.source(args.brief, jobs, costs, PROVIDERS, http, os.environ, out=args.out)
+    for r in records:
+        found = f"{r['results']} results, {r['new']} new" if "results" in r else \
+            f"{r['images']} images, {r['refused']} refused" if "images" in r else "nothing"
+        print(f"done  {r['need']}/{r['provider']} {r['kind']}: {found} in {r['seconds']} s")
+    for e in errors:
+        print(f"FAIL  {e}")
+    print(f"run {run}: {len(records)} requests, {len(errors)} errors")
     return 1 if errors else 0
 
 

@@ -138,13 +138,23 @@ def package_sources():
     return {p.relative_to(PACKAGE).as_posix(): p.read_text() for p in PACKAGE.rglob("*.py")}
 
 
+def _files_digest(paths):
+    h = hashlib.sha256()
+    for path in sorted(paths):
+        h.update(path.encode() + file_digest(PACKAGE / path).encode())
+    return h.hexdigest()
+
+
 @lru_cache(maxsize=None)
 def code_digest():
     """A digest of the code a render runs: this module and what it imports from the package."""
-    h = hashlib.sha256()
-    for path in cache.code_modules("render.py", package_sources()):
-        h.update(path.encode() + file_digest(PACKAGE / path).encode())
-    return h.hexdigest()
+    return _files_digest(cache.code_modules("render.py", package_sources()))
+
+
+@lru_cache(maxsize=None)
+def package_digest():
+    """A digest of all of ballyhoo's code: the version a run was made with."""
+    return _files_digest(package_sources())
 
 
 def load_jobs(creatives):

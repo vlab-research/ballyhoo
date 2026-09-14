@@ -24,6 +24,7 @@ TIMEOUT = 120
 POLL_SECONDS = 2
 POLL_LIMIT = 300
 USER_AGENT = "ballyhoo/0.1 (recruitment ads; https://github.com/vlab-research/ballyhoo)"
+EXIF_ORIENTATION = 0x0112
 
 
 def client(**kwargs):
@@ -75,19 +76,19 @@ def generate(http, provider, prompt, n, seed, width, height, directory, env=None
              model=None, **options):
     """Generate with seeds seed .. seed+n-1, keeping each image as delivered under <directory>/generated/.
 
-    Returns (candidates, errors). A refusal is reported and the other seeds still run;
+    Returns (candidates, refusals, errors). A refusal is reported and the other seeds still run;
     an HTTP error or a timeout stops the run, since the next seed would meet it too.
     """
     env = os.environ if env is None else env
     token = auth_token(http, provider, env)
     model = model or provider.MODEL
-    found, errors = [], []
+    found, refused, errors = [], [], []
     for s in range(seed, seed + n):
         request = provider.generate_request(prompt, s, width, height, env, token, model=model, **options)
         try:
             data = image_bytes(http, provider, request, env, token, sleep)
         except provider.Refused as e:
-            errors.append(f"seed {s}: {e}")
+            refused.append(f"seed {s}: {e}")
             continue
         except (httpx.HTTPError, TimeoutError) as e:
             errors.append(f"seed {s}: {e}")
@@ -100,7 +101,7 @@ def generate(http, provider, prompt, n, seed, width, height, directory, env=None
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         found.append(c)
-    return found, errors
+    return found, refused, errors
 
 
 def search(http, provider, query, n, env=None):
@@ -114,6 +115,30 @@ def search(http, provider, query, n, env=None):
             break
         page += 1
     return found[:n]
+
+
+def download_originals(http, directory, found):
+    """Download each stock candidate's full-size file into <directory>/originals/, as delivered.
+
+    Returns (the candidates, now naming their files, errors). A download that fails or is not an
+    image is reported, and its candidate left out.
+    """
+    downloaded, errors = [], []
+    for c in found:
+        try:
+            data = send(http, Request("GET", c.full)).content
+            ext = cands.extension(data)
+            with Image.open(io.BytesIO(data)) as im:
+                width, height = cands.displayed_size(*im.size, im.getexif().get(EXIF_ORIENTATION))
+        except (httpx.HTTPError, ValueError, OSError) as e:
+            errors.append(f"{c.id}: {e}")
+            continue
+        local = cands.with_original(c, ext, width, height)
+        path = Path(directory) / local.full
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        downloaded.append(local)
+    return downloaded, errors
 
 
 def read_image(http, directory, ref):

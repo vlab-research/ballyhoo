@@ -15,6 +15,8 @@ from . import provenance
 FILE = "candidates.yaml"
 THUMBS = "thumbs"
 GENERATED = "generated"
+ORIGINALS = "originals"
+ROTATED = (5, 6, 7, 8)  # EXIF orientations that turn an image a quarter, so its width and height swap
 THUMB_EDGE = 640   # px, long edge: enough to judge on a review page
 SHEET_COLUMNS = 5
 SHEET_ROWS = 4
@@ -37,6 +39,11 @@ class Candidate:
     def thumb(self):
         return f"{THUMBS}/{self.id}.jpg"
 
+    @property
+    def query(self):
+        """The search that found a stock candidate first; None for a generated one."""
+        return self.provenance.get("query")
+
 
 @dataclass(frozen=True)
 class Keep:
@@ -52,6 +59,22 @@ def generated_candidate(provider, model, prompt, seed, sha256, ext, width, heigh
                                                       "prompt": prompt, "seed": seed, "generated": today})
 
 
+def with_original(candidate, ext, width, height):
+    """A stock candidate once its full-size file is downloaded into originals/.
+
+    `full` and `preview` name that file and the size is the file's own, so what is previewed,
+    rated and kept is exactly those bytes. The record keeps the URL they were fetched from.
+    """
+    path = f"{ORIGINALS}/{candidate.id}{ext}"
+    return Candidate(candidate.id, width, height, path, path,
+                     {**candidate.provenance, "download_url": candidate.full})
+
+
+def displayed_size(width, height, orientation):
+    """An image's size as shown, after its EXIF orientation."""
+    return (height, width) if orientation in ROTATED else (width, height)
+
+
 def merge(existing, found):
     """The existing candidates in order, then those not seen before, so a number never changes."""
     ids = {c.id for c in existing}
@@ -64,8 +87,10 @@ def merge(existing, found):
 
 
 def dump(candidates):
-    """candidates.yaml as data. `n` is the number on the contact sheet."""
-    return {"candidates": [{"n": n, **{f: getattr(c, f) for f in FIELDS}, "thumb": c.thumb}
+    """candidates.yaml as data. `n` is the number on the contact sheet; `query`, beside the id, repeats the
+    record's so a person comparing queries can read it off at a glance."""
+    return {"candidates": [{"n": n, "id": c.id, **({"query": c.query} if c.query else {}),
+                            **{f: getattr(c, f) for f in FIELDS if f != "id"}, "thumb": c.thumb}
                            for n, c in enumerate(candidates, 1)]}
 
 

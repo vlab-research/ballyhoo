@@ -2,8 +2,8 @@ import datetime
 
 import pytest
 
-from ballyhoo.candidates import (Candidate, cell_origin, dump, extension, fit, kept_record, load, merge,
-                                 parse_picks, plan_keep, sheet_size, sheets)
+from ballyhoo.candidates import (Candidate, cell_origin, displayed_size, dump, extension, fit, kept_record, load,
+                                 merge, parse_picks, plan_keep, sheet_size, sheets, with_original)
 from ballyhoo.provenance import problems
 
 TODAY = datetime.date(2026, 9, 12)
@@ -96,6 +96,25 @@ def test_contact_sheets_hold_twenty_in_a_grid_of_five():
     assert sheets(0) == []
     assert sheet_size(20) == (1600, 1280) and sheet_size(5) == (1600, 320)
     assert cell_origin(0) == (0, 0) and cell_origin(7) == (640, 320)
+
+
+def test_each_stock_candidate_shows_the_query_that_found_it_beside_its_id():
+    entries = dump([stock(1), GENERATED])["candidates"]
+    assert list(entries[0])[:3] == ["n", "id", "query"] and entries[0]["query"] == "older woman phone"
+    assert "query" not in entries[1]
+
+
+def test_a_downloaded_original_is_what_the_candidate_names_and_its_record_keeps_the_url_fetched():
+    local = with_original(stock(1), ".jpg", 2000, 3000)
+    assert (local.full, local.preview, local.width, local.height) == (
+        "originals/pexels-1.jpg", "originals/pexels-1.jpg", 2000, 3000)
+    assert local.provenance == {**stock(1).provenance, "download_url": "https://images.example/1.jpeg"}
+    assert kept_record(local, SHA, "A. Author", TODAY)[1] == []
+
+
+def test_a_quarter_turn_in_exif_swaps_the_displayed_width_and_height():
+    assert displayed_size(4000, 3000, 6) == (3000, 4000)
+    assert displayed_size(4000, 3000, 1) == displayed_size(4000, 3000, None) == (4000, 3000)
 
 
 def test_thumbnails_shrink_to_fit_keeping_aspect_but_never_grow():

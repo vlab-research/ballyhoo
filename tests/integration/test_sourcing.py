@@ -125,10 +125,10 @@ def test_generate_keeps_each_image_as_delivered_and_reports_refusals_without_sto
 
     out = tmp_path / "cands"
     with sourcing.client(transport=httpx.MockTransport(fake_gemini)) as http:
-        found, errors = sourcing.generate(http, gemini, "An older woman reading her phone", 3, 1, 1080, 1350, out,
-                                          env={"GOOGLE_CLOUD_PROJECT": "p"}, today=TODAY)
+        found, refused, errors = sourcing.generate(http, gemini, "An older woman reading her phone", 3, 1, 1080, 1350,
+                                                   out, env={"GOOGLE_CLOUD_PROJECT": "p"}, today=TODAY)
         merged, _ = sourcing.add_candidates(out, found, http)
-    assert errors == ["seed 2: no image (finish reason IMAGE_SAFETY)"]
+    assert refused == ["seed 2: no image (finish reason IMAGE_SAFETY)"] and errors == []
     assert [c.provenance["seed"] for c in merged] == [1, 3]
     assert (out / merged[0].full).read_bytes() == images[1]
     assert (merged[0].width, merged[0].height) == (1024, 1280)
@@ -149,8 +149,9 @@ def test_generate_stops_at_an_http_error_rather_than_repeating_it(tmp_path, monk
         return httpx.Response(403, json={"error": {"message": "Permission denied on project p"}})
 
     with sourcing.client(transport=httpx.MockTransport(forbidden)) as http:
-        found, errors = sourcing.generate(http, gemini, "x", 4, 1, 1080, 1080, tmp_path, env={"GOOGLE_CLOUD_PROJECT": "p"})
-    assert found == [] and len(calls) == 1
+        found, refused, errors = sourcing.generate(http, gemini, "x", 4, 1, 1080, 1080, tmp_path,
+                                                   env={"GOOGLE_CLOUD_PROJECT": "p"})
+    assert found == refused == [] and len(calls) == 1
     assert errors[0].startswith("seed 1: 403 from https://aiplatform.googleapis.com/") and "Permission denied" in errors[0]
 
 
@@ -172,9 +173,9 @@ def test_a_queued_generation_is_polled_until_done_then_downloaded_without_creden
         return httpx.Response(200, content=png.getvalue())
 
     with sourcing.client(transport=httpx.MockTransport(fake_fal)) as http:
-        found, errors = sourcing.generate(http, fal, "An older man in the Atlas", 1, 1, 1080, 1350, tmp_path,
-                                          env={"FAL_KEY": "k"}, sleep=slept.append)
-    assert errors == [] and len(polls) == 3 and slept == [2, 2]
+        found, refused, errors = sourcing.generate(http, fal, "An older man in the Atlas", 1, 1, 1080, 1350, tmp_path,
+                                                   env={"FAL_KEY": "k"}, sleep=slept.append)
+    assert refused == errors == [] and len(polls) == 3 and slept == [2, 2]
     assert found[0].provenance["model"] == "fal-ai/flux-2-pro"
     assert (tmp_path / found[0].full).read_bytes() == png.getvalue()
 
@@ -198,9 +199,9 @@ def test_firefly_trades_its_client_credentials_for_a_token_once_per_run(tmp_path
 
     env = {"FIREFLY_SERVICES_CLIENT_ID": "cid", "FIREFLY_SERVICES_CLIENT_SECRET": "secret"}
     with sourcing.client(transport=httpx.MockTransport(fake_firefly)) as http:
-        found, errors = sourcing.generate(http, firefly, "A family at home", 2, 5, 1080, 1080, tmp_path, env=env,
-                                          sleep=lambda s: None)
-    assert errors == [] and len(tokens) == 1 and generations == [[5], [6]]
+        found, refused, errors = sourcing.generate(http, firefly, "A family at home", 2, 5, 1080, 1080, tmp_path,
+                                                   env=env, sleep=lambda s: None)
+    assert refused == errors == [] and len(tokens) == 1 and generations == [[5], [6]]
     assert [c.provenance["seed"] for c in found] == [5, 6]
 
 
