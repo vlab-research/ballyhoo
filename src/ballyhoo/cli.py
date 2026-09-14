@@ -4,7 +4,7 @@ import re
 import secrets
 from pathlib import Path
 
-from . import art, brief, candidates, provenance, render, runs, sourcing
+from . import art, brief, candidates, provenance, render, review, review_server, runs, sourcing, verdicts
 from .providers import MissingCredential, fal, firefly, gemini, openverse, pexels
 
 PROVIDERS = {p.NAME: p for p in (fal, firefly, gemini, openverse, pexels)}
@@ -57,11 +57,16 @@ def main(argv=None):
     g.add_argument("--out", type=Path, required=True, help="the candidates directory; images are appended")
     g.set_defaults(run=run_generate)
 
-    k = sub.add_parser("keep", help="copy picked candidates into the art library with their provenance")
-    k.add_argument("candidates", type=Path, help="a candidates.yaml")
-    k.add_argument("picks", nargs="+", help="<candidate id> or <candidate id>=<file name>")
+    k = sub.add_parser("keep", help="copy picked candidates into the art library with their provenance",
+                       usage="ballyhoo keep CANDIDATES PICK... --to DIR --picked-by NAME\n"
+                             "       ballyhoo keep RUN --verdicts --need NEED --to DIR")
+    k.add_argument("path", metavar="CANDIDATES|RUN", type=Path, help="a candidates.yaml; with --verdicts, a run folder")
+    k.add_argument("picks", nargs="*", help="<candidate id> or <candidate id>=<file name>")
     k.add_argument("--to", type=Path, required=True, help="the art directory, e.g. scenes/")
-    k.add_argument("--picked-by", required=True, help="the person who picked them")
+    k.add_argument("--picked-by", help="the person who picked them")
+    k.add_argument("--verdicts", action="store_true",
+                   help="keep every candidate of --need that the run's verdicts.yaml rates keep, picked by whoever rated")
+    k.add_argument("--need", help="with --verdicts: the need whose keeps to keep")
     k.set_defaults(run=run_keep)
 
     b = sub.add_parser("source", help="search and generate what a brief asks for, into a new run folder")
@@ -77,6 +82,14 @@ def main(argv=None):
     v = sub.add_parser("preview", help="render a run's candidates into its brief's preview templates, and check them")
     v.add_argument("folder", metavar="run", type=Path, help="a run folder that source made")
     v.set_defaults(run=run_preview)
+
+    w = sub.add_parser("review", help="serve a run's review page on 127.0.0.1, where a person rates its candidates")
+    w.add_argument("folder", metavar="run", type=Path, help="a run folder that source made")
+    w.add_argument("--port", type=int, default=0, help="the port to serve on (default 0: any free port)")
+    w.add_argument("--summary", action="store_true",
+                   help="print keep, maybe and drop counts per need, provider and query or prompt, and exit")
+    w.add_argument("--agent", action="store_true", help=f"with --summary: count {verdicts.AGENT_FILE} instead")
+    w.set_defaults(run=run_review)
 
     args = ap.parse_args(argv)
     return args.run(ap, args)
@@ -216,15 +229,62 @@ def run_preview(ap, args):
     return 1 if count["error"] else 0
 
 
+def run_review(ap, args):
+    if not args.folder.is_dir():
+        ap.error(f"{args.folder}: no such run folder")
+    if args.agent and not args.summary:
+        ap.error("--agent applies only with --summary: the page shows the agent's verdicts as hints")
+    r, errors = runs.read_review(args.folder, PROVIDERS)
+    for e in errors:
+        print(f"FAIL  {e}")
+    if errors:
+        return 1
+    if args.summary:
+        name, rated = (verdicts.AGENT_FILE, r.agent) if args.agent else (verdicts.FILE, r.verdicts)
+        print(f"{name}: rated by {rated.rated_by} on {rated.rated_on}" if rated else
+              f"{name}: none in this run, so every candidate is unrated")
+        for need in r.needs:
+            if need not in r.found:
+                print(f"skip  {need}: no candidates in this run")
+        for line in review.summary_lines(review.summary(r.found, rated)):
+            print(line)
+        return 0
+    server = review_server.make_server(args.folder, PROVIDERS, args.port)
+    print(f"review {args.folder} at {review_server.url(server)}  (saves {args.folder / verdicts.FILE}; Ctrl+C stops)",
+          flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 def run_keep(ap, args):
-    if not args.picked_by.strip():
-        ap.error("--picked-by must name the person who picked")
-    picks, errors = candidates.parse_picks(args.picks)
-    written = []
-    if picks:
+    if args.verdicts:
+        if args.picks or args.picked_by is not None:
+            ap.error(f"--verdicts takes the picks, and who picked them, from the run's {verdicts.FILE}: "
+                     "name no picks and no --picked-by")
+        if not args.need:
+            ap.error("--verdicts needs --need: the need whose keeps to keep")
+        if not args.path.is_dir():
+            ap.error(f"{args.path}: no such run folder")
         with sourcing.client() as http:
-            written, keep_errors = sourcing.keep(args.candidates, picks, args.to, args.picked_by, http)
-        errors += keep_errors
+            written, errors = runs.keep_verdicts(args.path, args.need, args.to, PROVIDERS, http)
+    else:
+        if args.need:
+            ap.error("--need applies only with --verdicts")
+        if not args.picks:
+            ap.error("name at least one pick, or keep what a run's verdicts rate keep with --verdicts --need")
+        if args.picked_by is None or not args.picked_by.strip():
+            ap.error("--picked-by must name the person who picked")
+        picks, errors = candidates.parse_picks(args.picks)
+        written = []
+        if picks:
+            with sourcing.client() as http:
+                written, keep_errors = sourcing.keep(args.path, picks, args.to, args.picked_by, http)
+            errors += keep_errors
     for path in written:
         print(f"ok    {path}")
     for e in errors:

@@ -1,28 +1,32 @@
-"""Runs: a brief sourced into a new folder, which nothing but preview writes into afterwards.
+"""Runs: a brief sourced into a new folder, which only preview and review write into afterwards.
 
-The shell for brief.py and preview.py. It reads the brief and finds its
-templates, runs each source job through sourcing.py into its need's folder
-(downloading stock originals), and writes the manifest. Previewing a run renders
-each candidate into its need's templates through render.py, writing previews/
-and checks.yaml into the need's folder. brief.py and preview.py decide what runs
-and whether it may; this module carries it out.
+The shell for brief.py, preview.py, verdicts.py and review.py. It reads the
+brief and finds its templates, runs each source job through sourcing.py into its
+need's folder (downloading stock originals), and writes the manifest. Previewing
+a run renders each candidate into its need's templates through render.py,
+writing previews/ and checks.yaml into the need's folder, and review.html into
+the run. Reviewing reads what the page shows, saves verdicts.yaml, and keeps the
+candidates it rates keep. The pure modules decide; this module carries it out.
 """
 import asyncio
 import datetime
 import os
 import shutil
+import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 from PIL import Image
 from playwright.async_api import async_playwright
 
-from . import art, brief, cache, candidates, preview, render, sourcing
+from . import art, brief, cache, candidates, preview, render, review, sourcing, verdicts
 
 BRIEF = "brief.yaml"
 MANIFEST = "manifest.yaml"
 RUNS = "runs"
+TEMPLATE = Path(__file__).with_name(review.PAGE)
 
 
 def load(path, providers, base=None):
@@ -59,6 +63,19 @@ def plan(path, providers, env, only, seed, max_cost, allow_unpriced):
 
 def _now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def write_atomically(path, text):
+    """Write a file whole, by renaming a finished temporary file over it, so no reader sees half of one."""
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def new_run(runs_dir, today):
@@ -127,6 +144,134 @@ def source(path, jobs, costs, providers, http, env, out=None, today=None, sleep=
     return run, records, errors
 
 
+def _manifest(run):
+    try:
+        return yaml.safe_load((Path(run) / MANIFEST).read_text()), []
+    except (OSError, yaml.YAMLError) as e:
+        return None, [f"{run}: not a run folder: {e}"]
+
+
+def read(run, providers):
+    """What a run holds. Returns (needs, designs, found, checks, errors).
+
+    `found` maps each need with a candidates file to its candidates, and `checks` each previewed
+    need to its loaded checks.yaml.
+    """
+    run = Path(run)
+    manifest, errors = _manifest(run)
+    if errors:
+        return [], None, {}, {}, errors
+    # The run's copy of the brief keeps the original's relative paths, so they resolve beside the original.
+    needs, designs, errors = load(run / BRIEF, providers, (run / manifest["brief"]).parent)
+    found, checks = {}, {}
+    for need in needs:
+        path = run / need.name / candidates.FILE
+        if path.is_file():
+            found[need.name], problems = candidates.load(yaml.safe_load(path.read_text()))
+            errors += [f"{path}: {p}" for p in problems]
+        path = run / need.name / preview.CHECKS
+        if path.is_file():
+            checks[need.name] = yaml.safe_load(path.read_text())
+    return needs, designs, found, checks, errors
+
+
+def candidate_ids(found):
+    return {need: [c.id for c in found_] for need, found_ in found.items()}
+
+
+def read_verdicts(run, found, name=verdicts.FILE):
+    """A run's verdicts.yaml, or with `name` its agent-verdicts.yaml, validated against its candidates.
+
+    Returns (Verdicts, or None when the run has no such file, errors).
+    """
+    path = Path(run) / name
+    if not path.is_file():
+        return None, []
+    try:
+        data = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as e:
+        return None, [f"{path}: {e}"]
+    parsed, errors = verdicts.parse(data, candidate_ids(found))
+    return parsed, [f"{path}: {e}" for e in errors]
+
+
+@dataclass(frozen=True)
+class Review:
+    """What a run's review page shows."""
+    name: str        # the run folder's name
+    needs: dict      # need -> what it asks for, in brief order
+    found: dict      # need -> candidates, for each need with a candidates file
+    checks: dict     # need -> loaded checks.yaml, for each previewed need
+    verdicts: object  # verdicts.Verdicts from verdicts.yaml, or None
+    agent: object     # verdicts.Verdicts from agent-verdicts.yaml, or None
+
+
+def read_review(run, providers):
+    """What a run's review page shows, as it is on disk. Returns (Review or None, errors)."""
+    run = Path(run).resolve()
+    needs, _, found, checks, errors = read(run, providers)
+    person, problems = read_verdicts(run, found)
+    agent, more = read_verdicts(run, found, verdicts.AGENT_FILE)
+    errors += problems + more
+    if errors:
+        return None, errors
+    return Review(run.name, {n.name: n.need for n in needs}, found, checks, person, agent), []
+
+
+def review_page(r, editable):
+    """The review page's HTML. `editable` says whether a server is behind it to save to."""
+    data = review.page_data(r.name, r.needs, r.found, r.checks, r.verdicts, r.agent, editable)
+    return review.page(TEMPLATE.read_text(), data)
+
+
+def write_review(run, providers):
+    """Write the run's read-only review.html. Returns errors, and writes nothing when there are any."""
+    r, errors = read_review(run, providers)
+    if not errors:
+        write_atomically(Path(run) / review.PAGE, review_page(r, editable=False))
+    return errors
+
+
+def save_verdicts(run, providers, data):
+    """Validate a verdicts map the page posted and write it to verdicts.yaml, or write nothing.
+
+    Returns (reply, errors): the reply names the file and holds the new summary. review.html is
+    rewritten to show the verdicts too.
+    """
+    run = Path(run).resolve()
+    needs, _, found, checks, errors = read(run, providers)
+    agent, problems = read_verdicts(run, found, verdicts.AGENT_FILE)
+    errors += problems
+    if not errors:
+        parsed, errors = verdicts.parse(data, candidate_ids(found))
+    if errors:
+        return None, errors
+    write_atomically(run / verdicts.FILE, yaml.safe_dump(verdicts.dump(parsed), sort_keys=False, allow_unicode=True))
+    r = Review(run.name, {n.name: n.need for n in needs}, found, checks, parsed, agent)
+    write_atomically(run / review.PAGE, review_page(r, editable=False))
+    return {"saved": verdicts.FILE, "summary": review.summary(found, parsed)}, []
+
+
+def keep_verdicts(run, need, to_dir, providers, http):
+    """Keep every candidate of `need` that verdicts.yaml rates keep, as picked by whoever rated it.
+
+    The files are the run's own bytes. Returns (written paths, errors).
+    """
+    run = Path(run)
+    _, _, found, _, errors = read(run, providers)
+    person, problems = read_verdicts(run, found)
+    errors += problems
+    if errors:
+        return [], errors
+    ids, errors = verdicts.keep_plan(person, (run / verdicts.AGENT_FILE).is_file(), list(found), need)
+    if errors:
+        return [], errors
+    manifest, _ = _manifest(run)
+    fetched = datetime.date.fromisoformat(str(manifest["started"])[:10])  # stock originals are downloaded by source
+    return sourcing.keep(run / need / candidates.FILE, [(i, None) for i in ids], to_dir, person.rated_by, http,
+                         today=person.rated_on, fetched=fetched)
+
+
 def template_problems(designs, name):
     """What stops a template previewing candidates: no slot, or a file it shows that is missing or unsourced.
 
@@ -169,23 +314,14 @@ async def _render_previews(run, designs, previews):
 def render_previews(run, providers):
     """Render each candidate in a run into its need's preview templates, and check each render.
 
-    Writes <need>/previews/, whatever the checks say, and <need>/checks.yaml; nothing outside the
-    run, and not the manifest. Returns (outcomes, names of needs with no candidates, errors). When
-    there are errors, nothing is rendered or written.
+    Writes <need>/previews/, whatever the checks say, <need>/checks.yaml and the run's review.html;
+    nothing outside the run, and not the manifest. Returns (outcomes, names of needs with no
+    candidates, errors). When there are errors before rendering, nothing is rendered or written;
+    a verdicts file that is not valid for the run is an error after rendering, and stops only
+    review.html.
     """
     run = Path(run)
-    try:
-        manifest = yaml.safe_load((run / MANIFEST).read_text())
-    except (OSError, yaml.YAMLError) as e:
-        return [], [], [f"{run}: not a run folder: {e}"]
-    # The run's copy of the brief keeps the original's relative paths, so they resolve beside the original.
-    needs, designs, errors = load(run / BRIEF, providers, (run / manifest["brief"]).parent)
-    found = {}
-    for need in needs:
-        path = run / need.name / candidates.FILE
-        if path.is_file():
-            found[need.name], problems = candidates.load(yaml.safe_load(path.read_text()))
-            errors += [f"{path}: {p}" for p in problems]
+    needs, designs, found, _, errors = read(run, providers)
     used = {t for need in needs if need.name in found for t in need.templates}
     previews, problems = preview.plan(needs, found, {t: template_problems(designs, t) for t in used})
     errors += problems
@@ -201,4 +337,4 @@ def render_previews(run, providers):
         if need.name in found:
             data = preview.checks_data(need, [o for o in outcomes if o.preview.need == need.name], ballyhoo, previewed)
             (run / need.name / preview.CHECKS).write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
-    return outcomes, empty, []
+    return outcomes, empty, write_review(run, providers)

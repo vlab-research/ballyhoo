@@ -1,0 +1,240 @@
+"""`ballyhoo review` and `keep --verdicts` on a run sourced from the fake provider.
+
+The review server runs for real on an ephemeral port in a thread, driven with httpx. No browser: the
+need that is "previewed" has a checks.yaml written by hand.
+"""
+import datetime
+import http.client
+import threading
+from pathlib import Path
+
+import httpx
+import pytest
+import yaml
+
+import fake_provider
+from ballyhoo import art, cli, provenance, review_server, verdicts
+
+SMOKE_DESIGNS = Path(__file__).parents[2] / "smoke" / "designs"
+TODAY = datetime.date.today()
+BAND = "photo-band/1080x1080"
+AGENT = "claude-code (claude-opus-5)"
+BRIEF = f"""designs: {SMOKE_DESIGNS}
+defaults:
+  preview: {{templates: [{BAND}], copy: Take a short survey.}}
+ke-woman:
+  need: A Kenyan woman in her fifties, using a phone.
+  search:
+    fake: [bright village, bright old village]
+ma-man:
+  need: A Moroccan man in his fifties.
+  generate: {{fake: A man in bright light.}}
+down:
+  need: Anything.
+  search: {{fake: error}}
+"""
+CHECKS = {"copy": "Take a short survey.", "templates": [BAND], "summary": {"candidates": 3, "pass": 1, "fail": 1},
+          "candidates": {
+              "fake-bright-2": {"pass": True, "previews": {BAND: {
+                  "status": "pass", "file": "previews/fake-bright-2_photo-band_1080x1080.png", "summary": "84px"}}},
+              "fake-bright-3": {"pass": False, "previews": {BAND: {
+                  "status": "fail", "file": "previews/fake-bright-3_photo-band_1080x1080.png", "summary": "84px",
+                  "failures": ["contrast 1.17:1 is below 3:1"]}}}}}
+
+
+@pytest.fixture
+def run(sent, tmp_path, capsys):
+    """A run whose ke-woman need was previewed: bright-2 from one query, bright-3 from both, bright-4 from the second."""
+    brief = tmp_path / "study" / "brief.yaml"
+    brief.parent.mkdir()
+    brief.write_text(BRIEF)
+    cli.main(["source", str(brief), "--seed", "1"])
+    capsys.readouterr()
+    run = brief.parent / "runs" / f"{TODAY.isoformat()}-1"
+    (run / "ke-woman" / "checks.yaml").write_text(yaml.safe_dump(CHECKS))
+    return run
+
+
+@pytest.fixture
+def served(run):
+    server = review_server.make_server(run, {"fake": fake_provider})
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        with httpx.Client(base_url=review_server.url(server)) as client:
+            yield client
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def embedded(html):
+    start = html.index('<script id="data" type="application/json">') + len('<script id="data" type="application/json">')
+    return yaml.safe_load(html[start:html.index("</script>", start)])
+
+
+def files(folder):
+    return sorted(str(p.relative_to(folder)) for p in folder.rglob("*"))
+
+
+def raw_get(client, path):
+    """GET a path exactly as written: httpx would resolve dot segments before sending."""
+    connection = http.client.HTTPConnection(client.base_url.host, client.base_url.port)
+    try:
+        connection.request("GET", path)
+        response = connection.getresponse()
+        response.read()
+        return response.status
+    finally:
+        connection.close()
+
+
+def test_the_page_shows_the_run_as_it_is_and_serves_its_files_but_nothing_outside_it(run, served):
+    (run.parents[1] / "secret.txt").write_text("not the run's")
+
+    page = served.get("/")
+    assert (page.status_code, page.headers["content-type"]) == (200, "text/html; charset=utf-8")
+    data = embedded(page.text)
+    assert data["editable"] is True
+    assert [(n["name"], n["previewed"], len(n["candidates"])) for n in data["needs"]] == [
+        ("ke-woman", True, 3), ("ma-man", False, 2), ("down", False, 0)]
+    two, three, four = data["needs"][0]["candidates"]
+    assert (three["id"], three["queries"], three["pass"], three["previews"][0]["failures"]) == (
+        "fake-bright-3", ["bright village", "bright old village"], False, ["contrast 1.17:1 is below 3:1"])
+    assert (four["previewed"], four["pass"]) == (False, None)
+
+    thumb = served.get(f"/{two['thumb']}")
+    assert (thumb.status_code, thumb.headers["content-type"]) == (200, "image/jpeg")
+    assert thumb.content == (run / two["thumb"]).read_bytes()
+    assert raw_get(served, "/ke-woman/../manifest.yaml") == 200, "dot segments reach the server and resolve"
+
+    assert raw_get(served, "/../../secret.txt") == 404
+    for path in ("/%2e%2e/%2e%2e/secret.txt", "/ke-woman/..%2f..%2f..%2fsecret.txt", "/%2Fetc%2Fpasswd",
+                 "/ke-woman/%00", "/nothing.png"):
+        assert served.get(path).status_code == 404, path
+    assert served.get("/", headers={"Host": "rebound.example"}).status_code == 403
+
+
+def test_an_invalid_save_is_refused_with_every_problem_and_writes_nothing(run, served):
+    before = files(run)
+    reply = served.post("/verdicts", json={"rated_by": " ", "rated_on": TODAY.isoformat(), "needs": {"ke-woman": {
+        "fake-bright-9": {"verdict": "keep"}, "fake-bright-2": {"verdict": "keep", "issues": ["blurry"]}}}})
+    assert reply.status_code == 400
+    assert reply.json()["errors"] == [
+        "rated_by is required: the name of whoever rated",
+        "ke-woman/fake-bright-9: not a candidate of ke-woman in this run",
+        f"ke-woman/fake-bright-2: unknown issue 'blurry' (known: {', '.join(verdicts.ISSUES)})"]
+    assert served.post("/verdicts", content=b'{"rated_by": "A"}', headers={"Content-Type": "text/plain"}).status_code == 415
+    assert served.post("/verdicts", content=b"{not json", headers={"Content-Type": "application/json"}).status_code == 400
+    assert files(run) == before
+
+
+def test_a_save_writes_verdicts_and_keep_takes_the_keeps_as_picked_by_the_rater(run, served, tmp_path, capsys):
+    posted = {"rated_by": "A. Author", "rated_on": TODAY.isoformat(), "needs": {"ke-woman": {
+        "fake-bright-2": {"verdict": "keep"},
+        "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."},
+        "fake-bright-4": {"verdict": "drop", "issues": ["age"]}}}}
+    reply = served.post("/verdicts", json=posted)
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["saved"] == "verdicts.yaml"
+    summary = reply.json()["summary"]
+    assert {q: (c["candidates"], c["keep"], c["drop"]) for q, c in summary["ke-woman"]["providers"]["fake"]["queries"].items()} \
+        == {"bright village": (2, 2, 0), "bright old village": (2, 1, 1)}
+    assert summary["ma-man"]["unrated"] == 2
+
+    assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {**posted, "rated_on": TODAY}
+    assert [p.name for p in run.iterdir() if p.name.endswith(".tmp")] == []
+    static = embedded((run / "review.html").read_text())
+    assert static["editable"] is False and static["needs"][0]["candidates"][1]["verdict"]["issues"] == ["crop"]
+    assert embedded(served.get("/").text)["rated_by"] == "A. Author"
+
+    scenes = tmp_path / "scenes"
+    keep = ["keep", str(run), "--verdicts", "--need", "ke-woman", "--to", str(scenes)]
+    assert cli.main(keep) == 0
+    assert capsys.readouterr().out.splitlines() == [f"ok    {scenes / 'fake-bright-2.jpg'}",
+                                                    f"ok    {scenes / 'fake-bright-3.jpg'}"]
+    for name in ("fake-bright-2", "fake-bright-3"):
+        image = scenes / f"{name}.jpg"
+        assert image.read_bytes() == (run / "ke-woman" / "originals" / f"{name}.jpg").read_bytes()
+        record = yaml.safe_load(art.sidecar(image).read_text())
+        assert provenance.problems(record, art.file_digest(image)) == []
+        assert (record["picked"], record["fetched"], record["query"]) == (
+            {"by": "A. Author", "on": TODAY}, TODAY, "bright village")
+
+    assert cli.main(keep) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "FAIL  fake-bright-2: fake-bright-2 is already taken in the art directory",
+        "FAIL  fake-bright-3: fake-bright-3 is already taken in the art directory"]
+
+
+def test_keep_refuses_a_run_without_verdicts_agent_verdicts_an_unknown_need_and_a_need_with_no_keeps(
+        run, tmp_path, capsys):
+    scenes = tmp_path / "scenes"
+    keep = ["keep", str(run), "--verdicts", "--to", str(scenes), "--need"]
+
+    assert cli.main(keep + ["ke-woman"]) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "FAIL  no verdicts.yaml in this run; rate the run first: ballyhoo review RUN"]
+
+    (run / "agent-verdicts.yaml").write_text(yaml.safe_dump({"rated_by": AGENT, "rated_on": TODAY, "needs": {
+        "ke-woman": {"fake-bright-2": {"verdict": "keep"}}}}))
+    assert cli.main(keep + ["ke-woman"]) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "FAIL  no verdicts.yaml in this run; agent-verdicts.yaml is not picks: a pick names the person who made it, "
+        "so a person rates in verdicts.yaml"]
+
+    (run / "verdicts.yaml").write_text(yaml.safe_dump({"rated_by": "A. Author", "rated_on": TODAY, "needs": {
+        "ke-woman": {"fake-bright-2": {"verdict": "maybe"}}}}))
+    assert cli.main(keep + ["ke-woman"]) == 1
+    assert capsys.readouterr().out.splitlines() == ["FAIL  ke-woman: no candidate is rated keep in verdicts.yaml"]
+    assert cli.main(keep + ["down"]) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "FAIL  down: not a need with candidates in this run (needs: ke-woman, ma-man)"]
+    assert not scenes.exists()
+
+    with pytest.raises(SystemExit):
+        cli.main(["keep", str(run), "fake-bright-2", "--verdicts", "--need", "ke-woman", "--to", str(scenes)])
+    with pytest.raises(SystemExit):
+        cli.main(["keep", str(run), "--verdicts", "--need", "ke-woman", "--picked-by", AGENT, "--to", str(scenes)])
+    capsys.readouterr()
+
+
+def test_keep_still_takes_picks_named_on_the_command_line(run, tmp_path, capsys):
+    scenes = tmp_path / "scenes"
+    assert cli.main(["keep", str(run / "ke-woman" / "candidates.yaml"), "fake-bright-4=ke-woman-village",
+                     "--to", str(scenes), "--picked-by", "B. Person"]) == 0
+    assert capsys.readouterr().out.splitlines() == [f"ok    {scenes / 'ke-woman-village.jpg'}"]
+    assert yaml.safe_load(art.sidecar(scenes / "ke-woman-village.jpg").read_text())["picked"]["by"] == "B. Person"
+
+
+def test_review_summary_prints_the_tallies_of_either_verdicts_file(run, capsys):
+    assert cli.main(["review", str(run), "--summary"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "verdicts.yaml: none in this run, so every candidate is unrated",
+        "skip  down: no candidates in this run",
+        "ke-woman: 3 found, 0 keep (0%), 0 maybe, 0 drop, 3 unrated",
+        "  fake: 3 found, 0 keep (0%), 0 maybe, 0 drop, 3 unrated",
+        "    query 'bright village': 2 found, 0 keep (0%), 0 maybe, 0 drop, 2 unrated",
+        "    query 'bright old village': 2 found, 0 keep (0%), 0 maybe, 0 drop, 2 unrated",
+        "ma-man: 2 found, 0 keep (0%), 0 maybe, 0 drop, 2 unrated",
+        "  fake: 2 found, 0 keep (0%), 0 maybe, 0 drop, 2 unrated",
+        "    prompt 'A man in bright light.': 2 found, 0 keep (0%), 0 maybe, 0 drop, 2 unrated",
+    ]
+
+    (run / "agent-verdicts.yaml").write_text(yaml.safe_dump({"rated_by": AGENT, "rated_on": TODAY, "needs": {
+        "ke-woman": {"fake-bright-3": {"verdict": "drop", "issues": ["age"]},
+                     "fake-bright-4": {"verdict": "keep"}}}}))
+    assert cli.main(["review", str(run), "--summary", "--agent"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"agent-verdicts.yaml: rated by {AGENT} on {TODAY}"
+    assert out[4:6] == [
+        "    query 'bright village': 2 found, 0 keep (0%), 0 maybe, 1 drop, 1 unrated; issues: age 1",
+        "    query 'bright old village': 2 found, 1 keep (50%), 0 maybe, 1 drop, 0 unrated; issues: age 1"]
+
+    (run / "verdicts.yaml").write_text(yaml.safe_dump({"rated_by": "A. Author", "rated_on": "soon", "needs": {}}))
+    assert cli.main(["review", str(run), "--summary"]) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        f"FAIL  {run.resolve() / 'verdicts.yaml'}: rated_on must be a date, e.g. 2026-09-14, not 'soon'"]
+    with pytest.raises(SystemExit):
+        cli.main(["review", str(run), "--agent"])

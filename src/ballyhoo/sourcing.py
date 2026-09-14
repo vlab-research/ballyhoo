@@ -203,8 +203,11 @@ def add_candidates(directory, found, http):
     return merged, draw_sheets(directory, merged)
 
 
-def keep(candidates_file, picks, to_dir, picked_by, http, today=None):
-    """Write each picked candidate into `to_dir` with its sidecar. Returns (written paths, errors)."""
+def keep(candidates_file, picks, to_dir, picked_by, http, today=None, fetched=None):
+    """Write each picked candidate into `to_dir` with its sidecar. Returns (written paths, errors).
+
+    `today` is the day it was picked; `fetched`, when a stock candidate's file was downloaded, by default `today`.
+    """
     candidates_file, to_dir = Path(candidates_file), Path(to_dir)
     found, errors = cands.load(yaml.safe_load(candidates_file.read_text()))
     if errors:
@@ -216,7 +219,7 @@ def keep(candidates_file, picks, to_dir, picked_by, http, today=None):
         try:
             data = read_image(http, candidates_file.parent, k.candidate.full)
             digest = hashlib.sha256(data).hexdigest()
-            record, problems = cands.kept_record(k.candidate, digest, picked_by, today or datetime.date.today())
+            record, problems = cands.kept_record(k.candidate, digest, picked_by, today or datetime.date.today(), fetched)
             if problems:
                 errors.append(f"{k.candidate.id}: {'; '.join(problems)}")
                 continue

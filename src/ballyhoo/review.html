@@ -1,0 +1,324 @@
+<!doctype html>
+<!--
+  The review page for a run, filled in by review.page with the data review.page_data builds.
+  `ballyhoo review RUN` serves it and saves verdicts.yaml when the page posts to /verdicts;
+  `ballyhoo preview` writes a read-only copy into the run. It loads nothing from the network.
+  Decisions stay in Python: the page shows the data and posts what the person chose.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review</title>
+<style>
+  :root { --ink: #1d1d1f; --muted: #626262; --line: #d8d8d4; --bg: #f4f4f1; --card: #fff;
+          --keep: #1a7f37; --maybe: #9a6700; --drop: #cf222e; --focus: #0969da; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+  #bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;
+         padding: .5rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
+  #bar input { font: inherit; padding: .3rem .4rem; width: 14rem; }
+  #save { font: inherit; padding: .35rem 1.2rem; }
+  #status, .muted { color: var(--muted); }
+  #status.dirty { color: var(--maybe); font-weight: 600; }
+  #banner { margin: 0; padding: .6rem 1rem; background: #fff3cd; border-bottom: 1px solid #e5d18a; }
+  #errors { margin: 0; padding: .6rem 1rem .6rem 2rem; background: #ffebe9; color: #82071e; border-bottom: 1px solid #f3b7b3; }
+  main { padding: 0 1rem 4rem; }
+  .need h2 { margin: 1.5rem 0 .2rem; }
+  .need > p { margin: .2rem 0; }
+  .summary-wrap { overflow-x: auto; }
+  table.summary { border-collapse: collapse; font-size: 13px; margin: .6rem 0 1rem; background: var(--card); }
+  table.summary th, table.summary td { padding: .2rem .6rem; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  table.summary th[scope=row] { text-align: left; font-weight: normal; white-space: normal; max-width: 36rem; }
+  table.summary td.issues { text-align: left; }
+  table.summary tr.total th, table.summary tr.provider th { font-weight: 600; }
+  table.summary tr.query th { padding-left: 1.6rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 760px), 1fr)); gap: 1rem; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-left: 6px solid var(--line); border-radius: 6px;
+          padding: .75rem; display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+  .tile.focused { outline: 3px solid var(--focus); outline-offset: 1px; }
+  .tile.keep { border-left-color: var(--keep); } .tile.maybe { border-left-color: var(--maybe); } .tile.drop { border-left-color: var(--drop); }
+  .images { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; }
+  .thumb { display: block; width: 480px; max-width: 100%; height: auto; background: #eee; }
+  .previews { display: flex; flex-direction: column; gap: .5rem; }
+  .preview { margin: 0; width: 240px; max-width: 100%; }
+  .preview img { display: block; width: 100%; height: auto; border: 3px solid var(--keep); box-sizing: border-box; }
+  .preview.fail img { border-color: var(--drop); }
+  .preview .no-render { padding: 2rem .5rem; text-align: center; border: 3px dashed var(--drop); }
+  .preview figcaption { font-size: 12px; }
+  .failures { color: var(--drop); margin: .2rem 0 0; padding-left: 1rem; }
+  .head code { font-weight: 600; }
+  .badge { display: inline-block; padding: 0 .4rem; border-radius: 3px; font-size: 12px; font-weight: 600; }
+  .badge.fail { background: #ffebe9; color: var(--drop); } .badge.warn { background: #fff3cd; color: #6b4b00; }
+  .alt { font-style: italic; }
+  .queries { margin: 0; padding-left: 1.2rem; }
+  .agent { font-size: 12px; color: var(--muted); background: #f0f0ec; padding: .2rem .4rem; border-radius: 3px; }
+  .controls { display: flex; flex-direction: column; gap: .4rem; }
+  .verdicts button { font: inherit; padding: .35rem 1rem; border: 1px solid var(--line); border-radius: 4px; background: var(--card); cursor: pointer; }
+  .verdicts button[aria-pressed=true] { color: #fff; }
+  .verdicts .keep[aria-pressed=true] { background: var(--keep); border-color: var(--keep); }
+  .verdicts .maybe[aria-pressed=true] { background: var(--maybe); border-color: var(--maybe); }
+  .verdicts .drop[aria-pressed=true] { background: var(--drop); border-color: var(--drop); }
+  .issue-boxes { display: flex; flex-wrap: wrap; gap: .15rem .8rem; }
+  textarea { width: 100%; box-sizing: border-box; font: inherit; }
+  button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; }
+</style>
+</head>
+<body>
+<header id="bar">
+  <strong id="run"></strong>
+  <label>Your name <input id="rated-by" autocomplete="name" required></label>
+  <button id="save" type="button">Save</button>
+  <span id="status"></span>
+  <span id="progress" class="muted"></span>
+  <span id="agent-by" class="muted"></span>
+  <span class="muted">k keep · m maybe · d drop · arrows move · Esc leaves a note</span>
+</header>
+<p id="banner" hidden>Read-only: nothing on this page can be saved, because no ballyhoo server is behind it.
+  To rate, run <code>ballyhoo review RUN</code> and open the address it prints.</p>
+<ul id="errors" hidden></ul>
+<main id="needs"></main>
+<script id="data" type="application/json">__BALLYHOO_DATA__</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("data").textContent);
+const EDITABLE = DATA.editable && location.protocol !== "file:";
+const ISSUES = Object.keys(DATA.issues);
+const KEYS = {k: "keep", m: "maybe", d: "drop"};
+const NAME_KEY = "ballyhoo-rated-by";
+const state = new Map();  // "<need>/<id>" -> what the person has chosen for that candidate
+const order = [];         // the keys in page order, for the arrow keys
+const summaries = {};     // need -> the element holding its summary table
+let focused = null;
+let dirty = false;
+
+function h(tag, props, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) {
+    if (c !== null && c !== undefined && c !== false) node.append(c instanceof Node ? c : String(c));
+  }
+  return node;
+}
+
+function link(href, content) {
+  return href ? h("a", {href, target: "_blank", rel: "noopener"}, content) : content;
+}
+
+function summaryTable(s) {
+  const cells = c => ["candidates", "keep", "maybe", "drop", "unrated"].map(k => h("td", {}, c[k]));
+  const row = (cls, label, c) => h("tr", {class: cls}, h("th", {scope: "row"}, label), cells(c),
+    h("td", {}, c.candidates ? Math.round(100 * c.keep / c.candidates) + "%" : ""),
+    h("td", {class: "issues"}, Object.entries(c.issues).map(([i, n]) => `${i} ${n}`).join(", ")));
+  const rows = [row("total", "all", s)];
+  for (const [provider, p] of Object.entries(s.providers)) {
+    rows.push(row("provider", provider, p));
+    for (const [kind, label] of [["queries", "query"], ["prompts", "prompt"]]) {
+      for (const [text, c] of Object.entries(p[kind] || {})) rows.push(row("query", [label + " ", h("q", {}, text)], c));
+    }
+  }
+  const head = ["", "found", "keep", "maybe", "drop", "unrated", "keep rate", "issues"].map(t => h("th", {scope: "col"}, t));
+  return h("table", {class: "summary"}, h("thead", {}, h("tr", {}, head)), h("tbody", {}, rows));
+}
+
+function paint(key) {
+  const s = state.get(key);
+  for (const b of s.buttons) b.setAttribute("aria-pressed", String(b.dataset.verdict === s.verdict));
+  s.tile.classList.remove(...DATA.verdicts);
+  if (s.verdict) s.tile.classList.add(s.verdict);
+}
+
+function showProgress() {
+  const rated = [...state.values()].filter(s => s.verdict).length;
+  document.getElementById("progress").textContent = `${rated} of ${state.size} rated`;
+  const status = document.getElementById("status");
+  status.className = dirty ? "dirty" : "";
+  if (dirty) status.textContent = "unsaved changes";
+}
+
+function changed(key) {
+  dirty = true;
+  paint(key);
+  showProgress();
+}
+
+function setVerdict(key, verdict) {
+  const s = state.get(key);
+  s.verdict = s.verdict === verdict ? null : verdict;
+  changed(key);
+}
+
+function focusTile(key, scroll) {
+  if (focused) state.get(focused).tile.classList.remove("focused");
+  focused = key;
+  const tile = state.get(key).tile;
+  tile.classList.add("focused");
+  if (scroll) tile.scrollIntoView({block: "nearest"});
+}
+
+function preview(c, p) {
+  const image = p.file
+    ? link(p.file, h("img", {src: p.file, alt: `${c.id} in ${p.template}`, loading: "lazy"}))
+    : h("div", {class: "no-render"}, "did not render");
+  return h("figure", {class: "preview " + p.status}, image,
+    h("figcaption", {}, h("b", {}, `${p.template} · ${p.status}`), p.summary ? h("div", {}, p.summary) : null,
+      p.failures.length ? h("ul", {class: "failures"}, p.failures.map(f => h("li", {}, f))) : null));
+}
+
+function tile(need, c) {
+  const key = `${need.name}/${c.id}`;
+  const v = c.verdict || {verdict: null, issues: [], note: null};
+  const s = {need: need.name, id: c.id, verdict: v.verdict, issues: new Set(v.issues), note: v.note || ""};
+  state.set(key, s);
+  order.push(key);
+
+  s.buttons = DATA.verdicts.map(name => h("button", {type: "button", class: name, "data-verdict": name,
+    disabled: !EDITABLE, onclick: () => setVerdict(key, name)}, name));
+  const boxes = ISSUES.map(issue => h("label", {title: DATA.issues[issue]},
+    h("input", {type: "checkbox", value: issue, checked: s.issues.has(issue), disabled: !EDITABLE,
+      onchange: e => { e.target.checked ? s.issues.add(issue) : s.issues.delete(issue); changed(key); }}), " " + issue));
+  const note = h("textarea", {rows: 2, placeholder: "note", disabled: !EDITABLE,
+    oninput: e => { s.note = e.target.value; changed(key); }});
+  note.value = s.note;
+
+  const badge = !c.previewed ? h("span", {class: "badge warn"}, "not previewed")
+    : c.pass ? null : h("span", {class: "badge fail"}, "fails checks");
+  const origin = c.source === "generated"
+    ? [h("div", {}, "prompt: ", h("q", {}, c.prompt)), h("div", {class: "muted"}, `model ${c.model} · seed ${c.seed}`)]
+    : [h("div", {}, c.queries.length > 1 ? `found by ${c.queries.length} queries:` : "query:",
+         h("ul", {class: "queries"}, c.queries.map(q => h("li", {}, q)))),
+       h("div", {class: "muted"}, "photo by ", link(c.creator_url, c.creator), " · ", link(c.licence_url, c.licence),
+         " · ", link(c.page_url, "source page"))];
+  const agent = c.agent && h("div", {class: "agent", title: `the agent's verdict: ${DATA.agent.rated_by}`},
+    "agent: ", h("b", {}, c.agent.verdict), c.agent.issues.length ? " · " + c.agent.issues.join(", ") : "",
+    c.agent.note ? " · " + c.agent.note : "");
+
+  s.tile = h("article", {class: "tile", "data-key": key, onmousedown: () => focusTile(key, false)},
+    h("div", {class: "images"},
+      link(c.full, h("img", {class: "thumb", src: c.thumb, alt: c.alt || c.id, loading: "lazy"})),
+      c.previews.length ? h("div", {class: "previews"}, c.previews.map(p => preview(c, p))) : null),
+    h("div", {class: "meta"},
+      h("div", {class: "head"}, h("code", {}, c.id), ` ${c.width}×${c.height} · ${c.provider} `, badge),
+      c.alt ? h("div", {class: "alt"}, c.alt) : null, origin),
+    agent,
+    h("div", {class: "controls"}, h("div", {class: "verdicts"}, s.buttons), h("div", {class: "issue-boxes"}, boxes), note));
+  paint(key);
+  return s.tile;
+}
+
+function section(need) {
+  summaries[need.name] = h("div", {class: "summary-wrap"}, need.summary ? summaryTable(need.summary) : null);
+  return h("section", {class: "need", id: "need-" + need.name},
+    h("h2", {}, need.name),
+    h("p", {}, need.need),
+    !need.has_candidates ? h("p", {class: "badge warn"}, "no candidates: every request for this need failed")
+      : need.previewed ? h("p", {class: "muted"}, "previewed with: ", h("q", {}, need.copy))
+      : h("p", {class: "badge warn"}, "not previewed: run ballyhoo preview"),
+    summaries[need.name],
+    h("div", {class: "grid"}, need.candidates.map(c => tile(need, c))));
+}
+
+function today() {
+  const d = new Date();
+  return [d.getFullYear(), d.getMonth() + 1, d.getDate()].map((n, i) => String(n).padStart(i ? 2 : 4, "0")).join("-");
+}
+
+function showErrors(messages) {
+  const box = document.getElementById("errors");
+  box.replaceChildren(...messages.map(m => h("li", {}, m)));
+  box.hidden = !messages.length;
+  if (messages.length) box.scrollIntoView({block: "nearest"});
+}
+
+function payload(name) {
+  const needs = {};
+  for (const s of state.values()) {
+    const note = s.note.trim();
+    if (!s.verdict && !s.issues.size && !note) continue;
+    const entry = {verdict: s.verdict};  // a note or issue without a verdict is sent, and refused by name
+    if (s.issues.size) entry.issues = ISSUES.filter(i => s.issues.has(i));
+    if (note) entry.note = note;
+    (needs[s.need] = needs[s.need] || {})[s.id] = entry;
+  }
+  return {rated_by: name, rated_on: today(), needs};
+}
+
+async function save() {
+  const input = document.getElementById("rated-by");
+  const name = input.value.trim();
+  if (!name) {
+    showErrors(["Enter your name before saving: every verdict, and so every pick, names the person who made it."]);
+    input.focus();
+    return;
+  }
+  const status = document.getElementById("status");
+  status.textContent = "saving…";
+  let reply, ok;
+  try {
+    const response = await fetch("/verdicts", {method: "POST", headers: {"Content-Type": "application/json"},
+                                               body: JSON.stringify(payload(name))});
+    ok = response.ok;
+    reply = await response.json();
+  } catch (e) {
+    ok = false;
+    reply = {errors: [`could not reach the ballyhoo server: ${e}`]};
+  }
+  if (!ok) {
+    status.textContent = "not saved";
+    showErrors(reply.errors || ["the server refused the save"]);
+    return;
+  }
+  try { localStorage.setItem(NAME_KEY, name); } catch (e) { /* storage blocked: the name is typed again next time */ }
+  dirty = false;
+  showErrors([]);
+  for (const [need, s] of Object.entries(reply.summary)) summaries[need]?.replaceChildren(summaryTable(s));
+  showProgress();
+  status.textContent = `saved to ${reply.saved} at ${new Date().toLocaleTimeString()}`;
+}
+
+document.getElementById("run").textContent = DATA.run;
+document.title = `Review ${DATA.run}`;
+document.getElementById("needs").append(...DATA.needs.map(section));
+if (DATA.rated_by) document.getElementById("status").textContent = `last saved by ${DATA.rated_by} on ${DATA.rated_on}`;
+if (DATA.agent) document.getElementById("agent-by").textContent = `agent hints: ${DATA.agent.rated_by}`;
+showProgress();
+
+const nameInput = document.getElementById("rated-by");
+const saveButton = document.getElementById("save");
+if (EDITABLE) {
+  try { nameInput.value = localStorage.getItem(NAME_KEY) || ""; } catch (e) { /* storage blocked */ }
+  saveButton.addEventListener("click", save);
+  window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+} else {
+  nameInput.disabled = saveButton.disabled = true;
+  document.getElementById("banner").hidden = false;
+}
+
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    if (EDITABLE) save();
+    return;
+  }
+  if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) {
+    if (e.key === "Escape") e.target.blur();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey || !order.length) return;
+  const i = order.indexOf(focused);
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    e.preventDefault();
+    focusTile(order[Math.min(i + 1, order.length - 1)], true);
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    e.preventDefault();
+    focusTile(order[Math.max(i - 1, 0)], true);
+  } else if (EDITABLE && focused && KEYS[e.key]) {
+    setVerdict(focused, KEYS[e.key]);
+  }
+});
+</script>
+</body>
+</html>

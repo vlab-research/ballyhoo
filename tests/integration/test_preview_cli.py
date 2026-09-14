@@ -81,6 +81,8 @@ down:
     assert not (run / "down").exists()
     assert list(tmp_path.rglob("out")) == []
     assert (run / "manifest.yaml").read_text() == manifest
+    page = (run / "review.html").read_text()
+    assert '"editable": false' in page and '"fake-dark-2"' in page, "a run can be viewed without the server"
 
 
 def test_a_template_without_a_scene_is_an_error_and_nothing_is_rendered(sent, tmp_path, capsys):
