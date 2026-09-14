@@ -189,9 +189,9 @@ otherwise credit the wrong photographer, or claim a licence the new file does no
 have.
 
 It also names the person who picked the image. The agent searches, generates and
-shortlists; a human picks, on the study's review page, and `keep` refuses to write
-a sidecar without that name. ballyhoo does not talk to the review page: it writes
-candidates the page shows and takes picks as arguments.
+shortlists; a human picks, and `keep` refuses to write a sidecar without that name.
+ballyhoo takes picks only from a person: named as arguments, or read from the
+`verdicts.yaml` a run's review page saves.
 
 ### Stock photos, through their APIs
 
@@ -238,7 +238,7 @@ like the partner's characters, which a later step places in a `#figure` slot, wh
 the collision check already applies. How they are drawn and cut out is not settled.
 Preview fills only `#scene` for now.
 
-### Judging imagery (briefs, runs and preview built; review planned in `planning/imagery-pipeline.md`)
+### Judging imagery (briefs, runs, preview and review built; the smoke run is next in `planning/imagery-pipeline.md`)
 
 Whether an image is right for a study is a human judgement, but much of what makes
 it wrong for an ad is not. The pipeline runs from a **brief** (what is needed,
@@ -257,7 +257,8 @@ working ad, and a person rates the rest against the need.
   is a comparison of verdicts across runs.
 - **Queries are what gets tuned.** Photos come from stock, so a run records, per
   query, how many results were new and how many an earlier query had already
-  found, and every candidate keeps the query that found it.
+  found. Every candidate lists each query that found it, and its provenance keeps
+  the first.
 - **Spending is refused before it happens, not after.** `--plan` sends nothing.
   Every request is built before any is sent, so a missing credential or a size a
   provider cannot make stops the run while it is still free. The estimate comes
@@ -300,6 +301,26 @@ working ad, and a person rates the rest against the need.
 - **The smoke template's band is translucent on purpose.** Under an opaque band the
   headline's contrast would not depend on the photo, and a preview could never
   screen out a dark one.
+- **A pick names a person, so verdicts are the one human input, and they are a file.**
+  The review page saves `verdicts.yaml` whole, naming who rated, and `keep --verdicts`
+  takes picks only from it. An agent may rate a run too, in `agent-verdicts.yaml`, which
+  helps tune queries; the page shows its verdicts as hints and never fills in the
+  person's controls, and `keep` refuses them. A record saying a person chose an image
+  has to be true.
+- **Verdicts are keyed by need, then candidate.** A candidate id names an image, and
+  one stock photo can turn up under two needs in a run, where it is judged against
+  each.
+- **A query gets credit for every photo it found.** The same photo comes back from
+  several queries, and crediting only the first query would make the later ones look
+  as if they found nothing. The summary counts a photo once for its need and provider,
+  and once for each query that found it.
+- **The review page decides nothing.** Its data, the summary and validation are Python.
+  The page shows them and posts what the person chose, and the server validates that
+  before writing anything.
+- **The review server is local and narrow.** It listens on 127.0.0.1 only and serves
+  files from the run, never from outside it. It refuses a request addressed to any
+  host name but 127.0.0.1 or localhost, and a save that is not JSON, because a page on
+  another site can rebind its own host name to 127.0.0.1 or post a plain form.
 
 ## Phase 3 sketch: generated layouts
 

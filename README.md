@@ -122,8 +122,9 @@ It never replaces an existing record, and writes none if any file cannot have on
 
 ## Sourcing images
 
-The agent searches or generates **candidates**; a person picks among them on the
-study's review page; `keep` copies a pick into the art library with its provenance.
+The agent searches or generates **candidates**; a person picks among them, on a run's
+review page (§ Review) or by naming them to `keep`; `keep` copies a pick into the art
+library with its provenance.
 
     uv run ballyhoo stock search "older woman phone market" --provider pexels --n 40 --out candidates/ke-older
     GOOGLE_CLOUD_PROJECT=<project> uv run ballyhoo generate "<prompt>" --provider gemini --size 1080x1080 --n 4 --out candidates/ke-older
@@ -134,7 +135,7 @@ A candidates directory holds:
 
 | Path | What |
 |---|---|
-| `candidates.yaml` | one entry per candidate: `n`, `id`, `query` (for stock, the search that found it first), `width`, `height`, `full` and `preview` (URLs, or paths in this directory), `thumb`, and the provenance record less `sha256`, `picked` and `fetched` |
+| `candidates.yaml` | one entry per candidate: `n`, `id`, for stock `query` (the search that found it first) and `queries` (every search that found it, first first), `width`, `height`, `full` and `preview` (URLs, or paths in this directory), `thumb`, and the provenance record less `sha256`, `picked` and `fetched`. The record keeps the provider's description of a photo when it has one: Pexels's `alt`, Openverse's `title` |
 | `originals/<id>.<ext>` | full-size stock files as delivered, when `source` made the directory; `full` and `preview` name them, and the record's `download_url` is the URL they came from |
 | `thumbs/<id>.jpg` | 640 px on the long edge, for review pages |
 | `sheet-01.png` … | contact sheets, 20 to a sheet, numbered by `n` |
@@ -227,6 +228,9 @@ runs/2026-09-14-1/         <date>-<n>; a second run that day is -2, and no run i
   brief.yaml               the brief as it was run; its relative paths mean what they meant beside the original
   manifest.yaml            what ran
   ke-older-woman/          a candidates directory (above), with stock originals in originals/
+  review.html              the review page, read-only (§ Review); written by preview and by each save
+  verdicts.yaml            a person's verdicts, saved from the review page; absent until someone rates
+  agent-verdicts.yaml      an agent's verdicts, written by the agent; optional
 ```
 
 One request's refusal or HTTP error is recorded, the other requests still run,
@@ -250,7 +254,8 @@ errors:
 
 For a search, `new` counts the results that no earlier query for the same need
 found in this run, and `already_found` counts the rest. A photo is downloaded
-once, and it keeps the first query that found it.
+once. Its provenance keeps the first query that found it, and its `queries` in
+`candidates.yaml` list every query that did, so each query's keep rate counts it.
 
 ## Previews
 
@@ -271,6 +276,8 @@ A person then rates an ad, not a raw photo.
 - A need with no candidates (every request for it failed) is skipped and named.
 - Running it again, say after editing a template, re-renders every preview and
   rewrites `checks.yaml`. Nothing is sent to a provider.
+- It also writes the run's `review.html`, a read-only copy of the review page
+  (§ Review), so the previews can be looked at without a server.
 - The exit status is non-zero for those mistakes and for a preview that did not
   render, not for a candidate that fails a check: screening candidates out is the
   point.
@@ -308,6 +315,90 @@ candidates:                            # by candidate id, in candidates.yaml ord
 
 `smoke/designs/photo-band/1080x1080.html` is a photo template for trying the
 pipeline: a scene under a band only 25% opaque, so a dark photo fails contrast.
+
+## Review
+
+`review` serves a run's review page on 127.0.0.1, where a person rates each candidate
+against its need. `keep --verdicts` then keeps what they rated keep.
+
+    uv run ballyhoo review runs/2026-09-14-1              # prints the page's address; --port N (default: any free port)
+    uv run ballyhoo review runs/2026-09-14-1 --summary    # print the counts below and exit; --agent counts agent-verdicts.yaml
+    uv run ballyhoo keep runs/2026-09-14-1 --verdicts --need ke-older-woman --to ../recruitment-creative/scenes
+
+The page groups candidates by need, in brief order. Each need opens with what it asks
+for, the headline its previews used, and the summary. Each candidate shows its
+thumbnail (click for the full image), its preview renders with any check failures,
+its provider, the queries that found it or its prompt, alt text, the photographer and
+licence or the model and seed, and an agent's verdict when there is one.
+
+- Rate with keep, maybe or drop, the issue boxes and a note. `k`, `m` and `d` rate the
+  candidate last clicked, and the arrow keys move between candidates.
+- A name is required to save. Saving sends every verdict on the page at once and writes
+  `verdicts.yaml` under that name, so one person rates a run. An invalid save is refused
+  with every problem, and nothing is written.
+- Opened as a file, as `preview` and each save write it, the page is read-only.
+- The server listens only on 127.0.0.1, and serves the page and files in the run,
+  nothing else. A run's files, verdicts included, can be broken by hand; `review` then
+  reports every problem and does not start.
+
+```yaml
+# verdicts.yaml
+rated_by: A. Author
+rated_on: 2026-09-14
+needs:                            # need -> candidate id -> verdict
+  ke-older-woman:
+    pexels-3573351:
+      verdict: keep               # keep, maybe or drop
+      issues: [crop]              # optional, from the list below
+      note: Tight on the right.   # optional
+    pexels-7544779:
+      verdict: drop
+      issues: [age]
+```
+
+Every need and candidate must be in the run, and a candidate with no entry is unrated.
+Verdicts are keyed by need because one photo can be a candidate of two needs, and is
+judged against each.
+
+| Issue | Someone rating sees |
+|---|---|
+| `minor` | someone who could read as under 18 |
+| `age` | someone who reads as older than middle age, even for an older stratum (`docs/creative-rules.md`) |
+| `text` | text or lettering in the image |
+| `tourist` | tourist imagery: landmarks, postcard scenes |
+| `poverty` | poverty imagery |
+| `artefact` | a visible artefact: hands, phones, faces |
+| `off-brief` | not what the need asks for |
+| `style` | a clash with the campaign |
+| `brand` | a visible brand or logo |
+| `crop` | no room for the headline |
+
+**Agent verdicts.** An agent may rate a run too, in `agent-verdicts.yaml`: the same
+format, with `rated_by` naming the agent and model, such as `claude-code
+(claude-opus-5)`. The page shows each one as a small hint beside the person's controls,
+never filled into them, and `review --summary --agent` counts them. `keep` never takes
+picks from them: a pick names the person who made it.
+
+**The summary** counts, per need, per provider and per query or prompt, the candidates
+found, how many are keep (with the keep rate), maybe, drop and unrated, and each issue.
+A photo that several queries found counts once for its need and provider, and once for
+each of those queries.
+
+```
+ke-older-woman: 6 found, 1 keep (17%), 1 maybe, 3 drop, 1 unrated; issues: age 2
+  pexels: 4 found, 1 keep (25%), 0 maybe, 2 drop, 1 unrated; issues: age 2
+    query 'kenyan woman phone': 3 found, 1 keep (33%), 0 maybe, 1 drop, 1 unrated; issues: age 1
+    query 'woman phone village kenya': 2 found, 0 keep (0%), 0 maybe, 2 drop, 0 unrated; issues: age 2
+  gemini: 2 found, 0 keep (0%), 1 maybe, 1 drop, 0 unrated
+    prompt 'A Kenyan woman in her fifties outside her home.': 2 found, 0 keep (0%), 1 maybe, 1 drop, 0 unrated
+```
+
+**`keep RUN --verdicts --need NEED --to DIR`** keeps every candidate of the need that
+`verdicts.yaml` rates keep, named by its id, from the run's own files: `picked.by` is
+`rated_by`, `picked.on` is `rated_on`, and a stock photo's `fetched` is the day the run
+started. It refuses a run with no `verdicts.yaml` (agent verdicts or not), a need with
+no candidates in the run, and a need with no keeps. Like every `keep`, it never
+overwrites a file.
 
 ## What fails a creative
 
@@ -348,11 +439,14 @@ a pure function, and the browser only measures and takes screenshots.
 | `candidates.py` | the candidates file, ids, contact-sheet layout, and what keeping a pick writes |
 | `brief.py` | what a brief sources: validates it, expands it into jobs, estimates their cost, checks every request can be built, names runs |
 | `preview.py` | what a preview renders: which candidate goes into which template, file names, whether a template has an `<img id="scene">`, and `checks.yaml` |
+| `verdicts.py` | whether a verdicts map is valid for a run, and what `keep --verdicts` keeps |
+| `review.py` | what the review page shows, the summary of verdicts per need, provider and query or prompt, and the page from its template (`review.html`) |
 | `providers/` | each API's requests, candidates or images from its replies, and its prices |
 | `render.py` | nothing; it is the shell. Reads files, drives Chrome (putting a candidate into a slot when asked), writes PNGs |
 | `art.py` | nothing; the shell for provenance. Hashes images, reads and writes sidecars |
 | `sourcing.py` | nothing; the shell for candidates and providers. Sends requests, polls queues, downloads originals, draws sheets, writes kept images |
-| `runs.py` | nothing; the shell for briefs and previews. Makes the run folder, runs each job through `sourcing`, writes the manifest; renders previews through `render` and writes `checks.yaml` |
+| `runs.py` | nothing; the shell for briefs, previews and review. Makes the run folder, runs each job through `sourcing`, writes the manifest; renders previews through `render` and writes `checks.yaml` and `review.html`; reads a run for review, saves `verdicts.yaml` and keeps a need's keeps |
+| `review_server.py` | nothing; the shell for the review page. Serves it and the run's files on 127.0.0.1, and saves what the page posts through `runs` |
 | `cli.py` | the `ballyhoo` command |
 
 ## Tests
@@ -376,6 +470,11 @@ a pure function, and the browser only measures and takes screenshots.
   `ballyhoo preview` on runs sourced from the fake provider: a dark candidate fails
   contrast, a 400 px one fails the upscale check, a bright one passes, and a template
   problem stops the preview before anything renders.
+- `tests/integration/test_review_cli.py` runs the review server on an ephemeral port, on a
+  run sourced from the fake provider, and drives it with httpx: the page, the run's files
+  and nothing outside it, a save refused with every problem, a save written. It then runs
+  `keep --verdicts` and its refusals, and `review --summary`. One browser test rates on the
+  page, saves, and checks the read-only copy.
 - `tests/integration/test_code_digest.py` checks that the render cache's code digest
   covers the modules rendering imports and not the sourcing ones.
 - `tests/integration/test_lac_designs.py` runs the seven LAC templates with stand-in

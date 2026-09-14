@@ -1,7 +1,7 @@
 # Plan: briefs, runs and review — the imagery pipeline end to end
 
-**Status: steps 1 (brief and source) and 2 (scene slot and preview) built 2026-09-14; steps
-3–5 are still a plan.** It continues `planning/phase-2-imagery.md`, whose increments 1–4
+**Status: steps 1 (brief and source), 2 (scene slot and preview) and 3 (verdicts and review)
+built 2026-09-14; steps 4 and 5 are still a plan.** It continues `planning/phase-2-imagery.md`, whose increments 1–4
 (provenance, candidates, stock and generation providers) are built. The author delegated the
 decisions below ("do what you think is best for now"); revisit any of them freely before
 building. Delete this file when the steps are done and their lessons are in `docs/design.md`.
@@ -22,7 +22,7 @@ means a new slot value and its checks, not a restructuring.
   pixel-exact), `README.md` (§ Provenance, § Sourcing images), `docs/design.md` (§ Phase 2),
   `planning/phase-2-imagery.md` (API findings and spike results), then this file.
 - **Tests:** `uv run pytest -m "not browser"` (about 1 s), `uv run pytest` (about 50 s).
-  178 pass on the branch.
+  202 pass on the branch, 22 of them in a browser.
 - **Credentials:** `.env` in the main checkout holds `PEXELS_API_KEY`, `FAL_KEY` and
   `GOOGLE_CLOUD_PROJECT`. The worktree has no `.env` of its own, so run
   `uv run --env-file ../ballyhoo/.env ballyhoo …`. Gemini also uses gcloud application default
@@ -70,7 +70,7 @@ brief.yaml ──source──▶ run/<need>/candidates ──preview──▶ ru
 | New check, **scene upscaled**: fails when `#scene` is drawn more than 1.25× its natural size in either direction. The page measures (rect, `naturalWidth`, `naturalHeight`, `object-fit`); Python decides. | A 640 px candidate stretched over a 1080 px ad passes every other check and looks soft. |
 | **`ballyhoo review <run>` serves the review page on 127.0.0.1** (stdlib `http.server`) and writes `verdicts.yaml` when the page saves. Opened as a plain file, the page is read-only. | No copy-paste, and no dependency on the artifact runtime for a smoke test. |
 | The same page, published as an Artifact with a database, is the remote-author version (a later step). The agent exports its database to `verdicts.yaml`. | This keeps the author's decision that picks happen on a review page, without ballyhoo talking to it. |
-| Verdicts are a **named map by candidate id**. | Ids are stable; positions are not (the same reason variants are maps). |
+| Verdicts are a **named map by need, then candidate id**. | Ids are stable; positions are not (the same reason variants are maps). One stock photo can be a candidate of two needs, judged against each. |
 | `picked.by` comes from the verdicts' `rated_by`, which the review page requires before saving. | A pick names a person. |
 | `source` downloads full-size stock files into the run, and `keep --verdicts` copies from the run. | Preview needs local files, and the kept bytes are exactly the ones that were previewed and rated. |
 | **Spend guard:** `source --plan` prints requests and estimated cost and sends nothing. `source` refuses above `--max-cost` (default $2). A provider with no published price (Firefly) counts as over the limit unless `--allow-unpriced`. | Fail loudly before spending, not after. |
@@ -153,29 +153,32 @@ errors: []
 
 ### verdicts.yaml
 
+As built in step 3, keyed by need and then candidate id:
+
 ```yaml
 rated_by: A. Author
 rated_on: 2026-09-13
-candidates:
-  gemini-e7cf824177a6:
-    verdict: keep                 # keep | maybe | drop
-    issues: [tourist]             # from the fixed list below
-    note: Good face; the kasbah looks like a postcard.
-  pexels-7544779:
-    verdict: drop
-    issues: [off-brief]
+needs:
+  ma-older-man:
+    gemini-e7cf824177a6:
+      verdict: keep               # keep | maybe | drop
+      issues: [tourist]           # from the fixed list below
+      note: Good face; the kasbah looks like a postcard.
+    pexels-7544779:
+      verdict: drop
+      issues: [off-brief]
 ```
 
-Issues, fixed in code for now: `minor` (anyone could read as under 18), `text` (text or
-lettering in the image), `tourist`, `poverty`, `artefact` (hands, phones, faces),
-`off-brief`, `style` (clashes with the campaign), `brand` (a visible logo), `crop`
-(no room for the headline).
+Issues, fixed in code (`verdicts.ISSUES`): `minor` (anyone could read as under 18), `age`
+(reads older than middle age; `docs/creative-rules.md`), `text` (text or lettering in the
+image), `tourist`, `poverty`, `artefact` (hands, phones, faces), `off-brief`, `style`
+(clashes with the campaign), `brand` (a visible logo), `crop` (no room for the headline).
 
 ### The review page
 
 One static HTML file built from the run data: a pure function makes the data, and a
 template in the package wraps it. It groups candidates by need; the need's text is at the
-top of each group. For each candidate it shows:
+top of each group, then the summary table. For each candidate it shows:
 
 - the thumbnail and the preview renders, with any check failures shown on them;
 - the provider, and the query or prompt;
@@ -183,7 +186,8 @@ top of each group. For each candidate it shows:
 - keep / maybe / drop, the issue checkboxes and a note.
 
 A name field is required before saving, and the page saves the whole verdicts map in one
-go. With no server (opened as a file) the controls are disabled.
+go. With no server (opened as a file) the controls are disabled. As built, it also shows
+alt text, every query that found a photo, and an agent's verdict as a hint.
 
 ## Modules
 
@@ -191,8 +195,8 @@ go. With no server (opened as a file) the controls are disabled.
 |---|---|---|
 | `brief.py` | pure | Validates a loaded brief. Expands it into source jobs (need, provider, kind, query or prompt, n, options). Estimates cost from each provider's `PRICE`. Names the run. |
 | `preview.py` | pure | Which (candidate, template) previews to render and their file names; the scene-upscale check; `checks.yaml` data. |
-| `verdicts.py` | pure | Validates verdicts; picks from verdicts (`keep` ids per need); later, the runs summary. |
-| `review.py` | pure | The review page's data from a run's candidates, checks and verdicts. |
+| `verdicts.py` | pure | Validates verdicts; picks from verdicts (`keep` ids per need). |
+| `review.py` | pure | The review page's data from a run's candidates, checks and verdicts; the summary of verdicts per need, provider and query or prompt. |
 | `runs.py` | shell | Creates the run folder, runs the source jobs through `sourcing`, downloads stock originals, writes the manifest, renders previews, builds `review.html`. |
 | `render.py` | shell | Gains an optional scene override per job (`Job.scene: Path \| None`), and returns the `#scene` measurements. |
 | `review_server.py` | shell | The 127.0.0.1 server: GET the page and run files; POST verdicts, validated by `verdicts.py` before writing. |
@@ -330,10 +334,10 @@ with a `made` sidecar, so the template also renders on its own.
 - Failure messages are sentences for people (`contrast 1.17:1 is below 3:1`, `#scene is
   upscaled 2.70x (max 1.25x): …`). Show them as they are rather than parsing them.
 - Previews are full-size PNGs, so the page may want to scale them down.
-- Previewing again rewrites `previews/` and `checks.yaml`. Verdicts are keyed by candidate id,
-  so they survive it.
+- Previewing again rewrites `previews/` and `checks.yaml`. Verdicts are keyed by need and
+  candidate id, so they survive it.
 
-### 3. Verdicts and review
+### 3. Verdicts and review (built 2026-09-14)
 
 `verdicts.py`, `review.py`, `review_server.py`, `ballyhoo review RUN [--port]`,
 `ballyhoo keep RUN --verdicts --need NEED --to DIR`.
@@ -345,6 +349,52 @@ with a `made` sidecar, so the template also renders on its own.
 - Tests: unit tests for verdict validation and picks. An integration test drives the server
   with `httpx` against a real `http.server` on an ephemeral port (no browser needed), then
   `keep`.
+
+**Built as planned, with these differences:**
+
+- **Verdicts are keyed by need, then candidate id** (`needs: {need: {id: verdict}}`), not by
+  id alone. `known` is per need, so one stock photo can be a candidate of two needs in a run,
+  and a verdict is a judgement against a need.
+- **The `age` issue** was added (`docs/creative-rules.md` in `main`: nobody older than middle
+  age, even for 60+ strata). Validation reports every problem together, including unknown
+  keys and a date with a time.
+- **Agent verdicts**, `agent-verdicts.yaml`, have the same format, with `rated_by` naming the
+  agent and model. The page shows them as a small hint and never pre-fills the person's
+  controls; `keep --verdicts` refuses a run that has only them. `review --summary --agent`
+  counts them, and also validates the file.
+- **Every query that found a candidate is recorded**, as `queries` in `candidates.yaml`
+  (`candidates.merge`); the provenance `query` stays the first. Pexels's `alt` and Openverse's
+  `title` were already in the record, and the page shows them.
+- **A summary**, per need, provider and query or prompt: found, keep, maybe, drop, unrated,
+  keep rate and issue counts. A photo found by two queries counts for both. It heads each need
+  on the page, comes back from each save, and `ballyhoo review RUN --summary` prints it
+  without starting a server.
+- **`review.html`** is written by `preview` and rewritten by each save, read-only, so a run
+  can be viewed without the server. Served, the page is built from disk on each GET.
+- **The server** also refuses a request whose `Host` is not 127.0.0.1 or localhost, and a
+  save that is not `application/json`, so another site cannot write through the browser.
+  It serves any file under the run, resolved with symlinks, and nothing outside it.
+- **`keep --verdicts`** sets `picked.on` to `rated_on`, and `fetched` to the day the run
+  started, when `source` downloaded the originals (`sourcing.keep` gained `fetched`).
+- The page's name field is remembered per browser (`localStorage`). Saving puts every verdict
+  in the file under the saver's name: two people rating one run overwrite each other's
+  attribution. One rater per run for now.
+- The run's `brief.yaml` is read as preview reads it, so `review` also needs the brief's
+  designs to still exist.
+- Tests: `tests/unit/test_verdicts.py`, `tests/unit/test_review.py`, and
+  `tests/integration/test_review_cli.py`, which includes one browser test that rates on the
+  page and saves.
+
+**For step 4:**
+
+- The smoke flow is `source`, `preview`, then `review` (which prints its URL), then
+  `review --summary`. Write the smoke brief's needs in line with `docs/creative-rules.md`:
+  "in their fifties", never "elderly" or "60 or more", even for 60+ strata, and give each need
+  several Pexels queries, since the summary's per-query keep rate is what tunes them.
+- An agent can pre-rate a run into `agent-verdicts.yaml` and compare its summary with the
+  person's (`--summary --agent`).
+- Drawings for `#figure` are not built; their candidates would show `prompt`, `model` and
+  `seed` on the page already, but preview fills only `#scene`.
 
 ### 4. Smoke brief and the first live run
 
