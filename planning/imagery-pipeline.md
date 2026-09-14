@@ -1,10 +1,17 @@
 # Plan: briefs, runs and review — the imagery pipeline end to end
 
-**Status: step 1 (brief and source) built 2026-09-14; steps 2–5 are still a plan.** It
-continues `planning/phase-2-imagery.md`, whose increments 1–4 (provenance, candidates, stock
-and generation providers) are built. The author delegated the decisions below ("do what you
-think is best for now"); revisit any of them freely before building. Delete this file
-when the steps are done and their lessons are in `docs/design.md`.
+**Status: steps 1 (brief and source) and 2 (scene slot and preview) built 2026-09-14; steps
+3–5 are still a plan.** It continues `planning/phase-2-imagery.md`, whose increments 1–4
+(provenance, candidates, stock and generation providers) are built. The author delegated the
+decisions below ("do what you think is best for now"); revisit any of them freely before
+building. Delete this file when the steps are done and their lessons are in `docs/design.md`.
+
+**Direction, 2026-09-14 (the author):** photos come from stock (Pexels), with queries tuned by
+people and agents. Generated images will be drawings used as transparent cut-outs, like the
+partner's character art, which a later step puts into a `#figure` slot. That step's design
+(drawing prompts, background removal, the mask check) is not settled. Step 2 builds the photo
+slot, `#scene`, only; a candidate's slot is a field (`Preview.slot`), so adding `#figure`
+means a new slot value and its checks, not a restructuring.
 
 ## Start here
 
@@ -15,7 +22,7 @@ when the steps are done and their lessons are in `docs/design.md`.
   pixel-exact), `README.md` (§ Provenance, § Sourcing images), `docs/design.md` (§ Phase 2),
   `planning/phase-2-imagery.md` (API findings and spike results), then this file.
 - **Tests:** `uv run pytest -m "not browser"` (about 1 s), `uv run pytest` (about 50 s).
-  154 pass on the branch.
+  178 pass on the branch.
 - **Credentials:** `.env` in the main checkout holds `PEXELS_API_KEY`, `FAL_KEY` and
   `GOOGLE_CLOUD_PROJECT`. The worktree has no `.env` of its own, so run
   `uv run --env-file ../ballyhoo/.env ballyhoo …`. Gemini also uses gcloud application default
@@ -260,7 +267,7 @@ Each step ends with the suite green, a commit, and the docs updated in a separat
 candidates directory, so keeping from a run copies the rated bytes from `originals/` or
 `generated/` without any change.
 
-### 2. Scene slot and preview
+### 2. Scene slot and preview (built 2026-09-14)
 
 `preview.py`; `render.py` scene override; the scene-upscale check; `smoke/designs/photo-band/1080x1080.html`.
 
@@ -278,6 +285,53 @@ candidates directory, so keeping from a run copies the rated bytes from `origina
 `../../../tests/fixtures/lac/library/fonts/Hind-Bold.ttf` rather than committing a second
 copy. Its default `#scene` `src` is `scene-placeholder.png`, a small committed flat image
 with a `made` sidecar, so the template also renders on its own.
+
+**Built as planned, with these differences:**
+
+- **`ballyhoo preview RUN` is its own command**, not the end of `source`. Previewing again
+  after a template edit must not spend on providers again, and `source` stays browser-free, so
+  its tests need no browser. The smoke flow is `source`, then `preview`, then `review`.
+- **No `Job.scene`.** `render.render(browser, template, text, swap=None)` takes a
+  `(slot, image path)` pair, and `render.SLOTS = ("scene",)` lists the slots the page
+  measures. `preview.Preview` has a `slot` field, so `#figure` would be a new value, not a
+  new field.
+- **The upscale check runs in every render**, in `checks.py` with the other checks, not only
+  in previews: a kept photo too small for its template is as soft in the ad. The real
+  hamster-band draws its 2048 px scene at 900 px (0.44×) and passes. The LAC stand-in hamster
+  was redrawn at 900 px, because at 450 px it failed. Summaries gain `scene <scale>x`.
+- **A swap guard.** The page reports the URL the slot shows (`currentSrc`), and a slot that
+  does not show the candidate fails: `srcset` or a `<picture>` would keep the placeholder.
+- **Every problem stops the whole preview before anything renders**, as a brief's mistakes
+  stop `source`: a template without an `<img id="scene">`, a file a template references that is
+  missing, an image other than the slot's own without provenance, a need with candidates but
+  no preview templates, a candidate whose image is only a URL, and two previews with one file
+  name. Preview requires templates; the brief still does not.
+- **Previews are written whether or not they pass**, since the review page shows failures on
+  them, and a new preview deletes the need's old `previews/*.png` first. The exit status is
+  non-zero for errors and for a preview that did not render, not for failed checks.
+- `checks.yaml` holds `copy`, `templates`, `previewed`, `ballyhoo` (the package digest, as in
+  the manifest) and a `summary` count. Per candidate it holds `pass`, and per template
+  `status` (`pass`, `fail` or `error`), `file`, `summary` and `failures`. There is no separate
+  preview record, and the manifest is not touched.
+- The run's `brief.yaml` is read with its paths resolved beside the original brief (the
+  manifest's `brief`), so moving a run away from its brief makes preview an error.
+- The integration tests are `tests/integration/test_preview_cli.py`, because pytest cannot
+  collect two modules named `test_preview`. The `sent` fixture moved to `tests/conftest.py`.
+- The smoke template's band is 25% cream: the fake dark image gives 1.17:1 and fails contrast,
+  and the bright one gives 5.6:1. Its placeholder is a flat 1080 px PNG (5 KB), because a
+  smaller one would fail the upscale check when the template renders on its own.
+
+**For step 3:**
+
+- Read `<need>/checks.yaml`. Candidates are keyed by id in `candidates.yaml` order. Each has
+  `pass` and `previews[<template>]` with `status`, `file` (relative to the need's folder;
+  absent for `error`), `summary` and `failures`. A need with no `checks.yaml` had no candidates
+  or has not been previewed.
+- Failure messages are sentences for people (`contrast 1.17:1 is below 3:1`, `#scene is
+  upscaled 2.70x (max 1.25x): …`). Show them as they are rather than parsing them.
+- Previews are full-size PNGs, so the page may want to scale them down.
+- Previewing again rewrites `previews/` and `checks.yaml`. Verdicts are keyed by candidate id,
+  so they survive it.
 
 ### 3. Verdicts and review
 
@@ -342,9 +396,14 @@ Pexels and Gemini.
 - ~~Pexels originals can be 20+ MB; cap them with imgix-style parameters?~~ Settled in step 1:
   not capped. Pexels documents only its preset sizes, not custom `w`/`h`, and resized copies
   are re-encoded. The URL fetched is recorded as `download_url`.
-- Setting `#scene`'s `src` to a `file://` path outside the template's directory, with
-  `--allow-file-access-from-files`, and that `decode()` waits for the new image, not the
-  placeholder.
+- ~~Setting `#scene`'s `src` to a `file://` path outside the template's directory, and that
+  `decode()` waits for the new image, not the placeholder.~~ Settled in step 2, in Chrome
+  through Playwright. After `src` changes, `decode()` resolved only once a replacement delayed
+  1.5 s over HTTP had arrived, reporting its `naturalWidth` and `currentSrc`. A `file://` image in
+  another directory tree loads with or without `--allow-file-access-from-files`, which only
+  CORS-mode fetches (masks) need. A missing file rejects `decode()` with `EncodingError`, which
+  `PREPARE_JS` reports as a load failure. The preview test asserts the candidate's scale
+  (0.90x), not the placeholder's (1.00x).
 - ~~The `code_digest` render cache hashes every `*.py` in the package.~~ Settled in step 1: it
   follows `render.py`'s imports instead, so sourcing and pipeline modules are left out without
   having to be listed. If step 2's `render.py` imports `preview.py`, that module is covered

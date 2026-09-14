@@ -74,6 +74,10 @@ One self-contained HTML file per design per size, named `<W>x<H>.html`.
   optional.
 - Inside `#headline`, one element whose only content is `{{text}}`.
 - `#figure`, optional: the cut-out the headline must not touch.
+- `#scene`, optional: `<img id="scene" src="…">`, a photo. It fails when drawn more
+  than 1.25× its image's size, and it is the image `preview` replaces with each
+  candidate. Give it a real `src` (a kept photo, or a placeholder with provenance)
+  so the template also renders on its own.
 - Images, CSS images and fonts by relative path from the template. Pin fonts with
   `@font-face`; never rely on system fonts. Every image needs provenance (below).
 - Use unitless `line-height` and `em` spacing so they scale when autofit shrinks
@@ -248,6 +252,63 @@ For a search, `new` counts the results that no earlier query for the same need
 found in this run, and `already_found` counts the rest. A photo is downloaded
 once, and it keeps the first query that found it.
 
+## Previews
+
+`preview` renders every candidate in a run into each template its need's `preview`
+names, with the brief's `copy` as the headline, and runs the checks on each render.
+A person then rates an ad, not a raw photo.
+
+    uv run ballyhoo preview runs/2026-09-14-1
+
+- The candidate replaces the template's `<img id="scene">` in the page. The template
+  file is never copied or changed.
+- A preview is not an ad. It is written inside the run, never to `out/`, whether or
+  not it passes. The image the candidate replaces needs no provenance; every other
+  image the template shows still does.
+- Mistakes are reported together, and then nothing renders: a template with no
+  `<img id="scene">`, a file a template references that is missing or has no
+  provenance, a need with candidates but no preview templates.
+- A need with no candidates (every request for it failed) is skipped and named.
+- Running it again, say after editing a template, re-renders every preview and
+  rewrites `checks.yaml`. Nothing is sent to a provider.
+- The exit status is non-zero for those mistakes and for a preview that did not
+  render, not for a candidate that fails a check: screening candidates out is the
+  point.
+
+```
+runs/2026-09-14-1/ke-older-woman/
+  previews/<id>_<design>_<W>x<H>.png   every render, passing or not
+  checks.yaml                          what the checks found
+```
+
+```yaml
+# checks.yaml
+copy: Take a short survey and get *KES 100* airtime.
+templates: [photo-band/1080x1080]
+previewed: 2026-09-14T10:12:03Z
+ballyhoo: 3f9a…                        # digest of all of ballyhoo's code
+summary: {candidates: 2, pass: 1, fail: 1}
+candidates:                            # by candidate id, in candidates.yaml order
+  pexels-3573351:
+    pass: true                         # every preview of it passes
+    previews:
+      photo-band/1080x1080:
+        status: pass                   # pass, fail, or error: it did not render
+        file: previews/pexels-3573351_photo-band_1080x1080.png
+        summary: 84px, 2 lines, contrast 5.6:1, text 3%, scene 0.90x
+  pexels-7544779:
+    pass: false
+    previews:
+      photo-band/1080x1080:
+        status: fail
+        file: previews/pexels-7544779_photo-band_1080x1080.png
+        summary: 84px, 2 lines, contrast 1.2:1, text 4%, scene 0.34x
+        failures: ['contrast 1.17:1 is below 3:1']
+```
+
+`smoke/designs/photo-band/1080x1080.html` is a photo template for trying the
+pipeline: a scene under a band only 25% opaque, so a dark photo fails contrast.
+
 ## What fails a creative
 
 | Check | Fails when |
@@ -257,6 +318,7 @@ once, and it keeps the first query that found it.
 | Figure collision | a headline line box (plus margin) touches `#figure`'s alpha; mask specks under 500 px are ignored |
 | Contrast | WCAG ratio of a text colour against the pixels behind its glyphs is below `data-min-contrast` |
 | Canvas | the render is not the size in the file name |
+| Scene upscaled | `#scene` is drawn more than 1.25× its image's size in either direction: under `object-fit: cover` the larger of width and height ratios, under `contain` the smaller, under `fill` each |
 | Text share | text pixels cover more than 20% of the canvas |
 | Blank | more than 99% of the canvas is one colour |
 | Load | an image, CSS image or font fails to load |
@@ -285,11 +347,12 @@ a pure function, and the browser only measures and takes screenshots.
 | `provenance.py` | whether an image's provenance record is complete and belongs to that image |
 | `candidates.py` | the candidates file, ids, contact-sheet layout, and what keeping a pick writes |
 | `brief.py` | what a brief sources: validates it, expands it into jobs, estimates their cost, checks every request can be built, names runs |
+| `preview.py` | what a preview renders: which candidate goes into which template, file names, whether a template has an `<img id="scene">`, and `checks.yaml` |
 | `providers/` | each API's requests, candidates or images from its replies, and its prices |
-| `render.py` | nothing; it is the shell. Reads files, drives Chrome, writes PNGs |
+| `render.py` | nothing; it is the shell. Reads files, drives Chrome (putting a candidate into a slot when asked), writes PNGs |
 | `art.py` | nothing; the shell for provenance. Hashes images, reads and writes sidecars |
 | `sourcing.py` | nothing; the shell for candidates and providers. Sends requests, polls queues, downloads originals, draws sheets, writes kept images |
-| `runs.py` | nothing; the shell for briefs. Makes the run folder, runs each job through `sourcing`, writes the manifest |
+| `runs.py` | nothing; the shell for briefs and previews. Makes the run folder, runs each job through `sourcing`, writes the manifest; renders previews through `render` and writes `checks.yaml` |
 | `cli.py` | the `ballyhoo` command |
 
 ## Tests
@@ -309,6 +372,10 @@ a pure function, and the browser only measures and takes screenshots.
   `tests/fake_provider.py`, a provider registered only in tests. It answers through a
   mock transport and draws bright, dark and small images at test time. The query or
   prompt picks the image, "error" gets a 503, and seed 13 is refused.
+- `tests/integration/test_preview_cli.py` renders the smoke template on its own, and runs
+  `ballyhoo preview` on runs sourced from the fake provider: a dark candidate fails
+  contrast, a 400 px one fails the upscale check, a bright one passes, and a template
+  problem stops the preview before anything renders.
 - `tests/integration/test_code_digest.py` checks that the render cache's code digest
   covers the modules rendering imports and not the sourcing ones.
 - `tests/integration/test_lac_designs.py` runs the seven LAC templates with stand-in

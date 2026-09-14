@@ -96,6 +96,7 @@ This is the core of Phase 1: the only thing between a typo and a broken ad on Me
 | Figure collision | a line box touches `#figure`'s alpha (specks < 500 px ignored) | headline across someone's face |
 | Contrast | text colour vs pixels behind its glyphs < `data-min-contrast` (default 3:1) | headline drifting onto a dark band |
 | Canvas | render ≠ template size | a viewport bug |
+| Scene upscaled | `#scene` drawn > 1.25× its image's size, in either direction | a small photo stretched over an ad passes every other check and looks soft |
 | Text share | text pixels > 20% of canvas | correlates with worse Meta delivery |
 | Blank | > 99% one colour | a layer silently failed |
 | Load | any font or image fails | fallback fonts and missing art look plausible |
@@ -231,7 +232,13 @@ rectangles. *Never matte a figure out of a flattened PNG* still holds; a cut-out
 needs a background-removal step (a matting model on an image generated against a
 plain background) with its own mask check.
 
-### Judging imagery (briefs and runs built; preview and review planned in `planning/imagery-pipeline.md`)
+**Direction (the author, 2026-09-14):** photos come from stock, with queries tuned by
+people and agents. Generated images will be drawings used as transparent cut-outs,
+like the partner's characters, which a later step places in a `#figure` slot, where
+the collision check already applies. How they are drawn and cut out is not settled.
+Preview fills only `#scene` for now.
+
+### Judging imagery (briefs, runs and preview built; review planned in `planning/imagery-pipeline.md`)
 
 Whether an image is right for a study is a human judgement, but much of what makes
 it wrong for an ad is not. The pipeline runs from a **brief** (what is needed,
@@ -269,6 +276,30 @@ working ad, and a person rates the rest against the need.
   pixel. It now covers `render.py` and whatever that imports, found by following
   relative imports. Nobody has to remember to list a module, so a list cannot go
   stale and leave an out-of-date ad in place.
+- **Previews are not ads.** A candidate is rendered into real templates with the
+  brief's sample headline and checked, but written only inside the run. Nothing is
+  picked yet, so the image it replaces needs no provenance; every other image the
+  template shows does, and `out/` still only ever holds ads that pass.
+- **The page swaps the image; the template is never copied.** Preview sets
+  `#scene`'s `src` to the candidate's `file://` URL before waiting for images, so
+  the template's relative paths keep resolving. In Chrome, `decode()` called after
+  `src` changes waits for the new image (checked against a delayed load), and an
+  image from any directory loads, flag or no flag: only CORS-mode fetches such as
+  masks need `--allow-file-access-from-files`. The page still reports the URL the slot
+  shows, and a slot showing anything else fails, because `srcset` or a `<picture>`
+  would quietly keep the placeholder.
+- **A candidate fills a slot, named by id.** Photos go into `#scene`. Generated
+  images are expected to be drawn cut-outs for `#figure` (above), so the slot is a
+  field of a preview, not a name built into the code.
+- **Scene upscaling is checked in every render, not only in previews.** A kept photo
+  too small for its template looks as soft in the ad. The scale follows
+  `object-fit`: `cover` draws at the larger of the width and height ratios, `contain`
+  at the smaller.
+- **Preview is its own command, not the end of `source`.** Previewing again after a
+  template edit must not send provider requests again, and `source` needs no browser.
+- **The smoke template's band is translucent on purpose.** Under an opaque band the
+  headline's contrast would not depend on the photo, and a preview could never
+  screen out a dark one.
 
 ## Phase 3 sketch: generated layouts
 
