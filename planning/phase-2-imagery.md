@@ -216,6 +216,31 @@ These are the `PRICE` tables in the provider modules, which `ballyhoo source` es
     local rembg (pin `birefnet-general`; its default model needs a commercial licence), or a
     chroma key on a solid background. Matting models tend to drop thin strokes and white fills
     in line art.
+- **Research: sources of local commercial photography, 2026-09-14.** Photography must look
+  like a professional local ad (`docs/creative-rules.md` § Audience).
+  - **Shutterstock's API is the only one found that filters by where the photographer is:**
+    `contributor_country=KE`, plus `people_model_released`, `people_ethnicity` and
+    `people_age`.
+    - A free test account searches 3M images, with 500 downloads a month and 100 calls an hour.
+    - The standard licence covers social ads but excludes "sensitive use" (a model shown with
+      a health condition or backing a cause). Check that per study.
+  - **Getty and iStock have the most polished local lifestyle work**, e.g. iStock
+    "Nairobi lifestyle" at 510+. The API is only for customers after review. Health topics
+    need "Stock photo. Posed by model."
+  - **arabianEye** covers the Gulf and Arab look; there is no API and Morocco is unverified.
+  - **Adobe Stock's API** is enterprise-only since November 2024 and has no country or
+    ethnicity filter.
+  - **Unsplash, Pexels, Iwaria and Nappy** are free but check no model releases, and Pexels
+    cannot search by photographer.
+  - **Commissioning a Nairobi photographer** runs about KES 20,000–45,000 a day.
+  - **Local ads to learn the look from:**
+    - The Meta Ad Library website shows active ads of every type by country. Its API covers
+      commercial ads only in the EU and UK, so a reference set of Kenyan or Moroccan brand ads
+      (Safaricom, Equity, KCB, Airtel; Maroc Telecom, inwi, Attijariwafa) means capturing
+      screenshots by hand, for studying the style only.
+    - No published study compares African or MENA ad imagery with Western stock.
+  - **Next to try:** the same Shutterstock query with and without `contributor_country`, to
+    see whether local contributors give the local-ad look.
 - **Background removal, 2026-09-14** (about $1.98). Each of the 11 Express cut-outs in
   `recruitment-creative/characters/` was placed on white, grey and green, and each method's mask
   was scored against Express's alpha.
