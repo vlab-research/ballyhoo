@@ -74,7 +74,7 @@ def run_job(job, provider, directory, http, env, today, sleep, known):
 
     Returns (the manifest's record of the job, errors naming the job). `known` holds the candidate
     ids already in the folder: a photo that an earlier query found is counted as already found, is
-    not downloaded again, and keeps the earlier query in its record.
+    not downloaded again, keeps the earlier query in its record, and adds this query to its queries.
     """
     label = f"{job.need}/{job.provider} search {job.text!r}" if job.kind == "search" else \
         f"{job.need}/{job.provider} generate"
@@ -86,6 +86,7 @@ def run_job(job, provider, directory, http, env, today, sleep, known):
             new = [c for c in results if c.id not in known]
             record.update(results=len(results), new=len(new), already_found=len(results) - len(new))
             found, problems = sourcing.download_originals(http, directory, new)
+            found += [c for c in results if c.id in known]
         else:
             found, refused, problems = sourcing.generate(
                 http, provider, job.text, job.n, job.seed, job.width, job.height, directory, env=env, today=today,

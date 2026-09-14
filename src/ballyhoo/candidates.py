@@ -8,7 +8,7 @@ what keeping a candidate writes.
 """
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from . import provenance
 
@@ -34,6 +34,7 @@ class Candidate:
     full: str         # the full-size image: a URL, or a path relative to the candidates directory
     preview: str      # a smaller image to thumbnail: a URL, or a path relative to the candidates directory
     provenance: dict  # the sidecar, less what keeping adds: sha256, picked, and for stock, fetched
+    later_queries: tuple = ()  # searches after the first that found it too: not provenance, but how to tune queries
 
     @property
     def thumb(self):
@@ -43,6 +44,11 @@ class Candidate:
     def query(self):
         """The search that found a stock candidate first; None for a generated one."""
         return self.provenance.get("query")
+
+    @property
+    def queries(self):
+        """Every search that found a stock candidate, first first; () for a generated one."""
+        return (self.query, *self.later_queries) if self.query else ()
 
 
 @dataclass(frozen=True)
@@ -66,8 +72,8 @@ def with_original(candidate, ext, width, height):
     rated and kept is exactly those bytes. The record keeps the URL they were fetched from.
     """
     path = f"{ORIGINALS}/{candidate.id}{ext}"
-    return Candidate(candidate.id, width, height, path, path,
-                     {**candidate.provenance, "download_url": candidate.full})
+    return replace(candidate, width=width, height=height, full=path, preview=path,
+                   provenance={**candidate.provenance, "download_url": candidate.full})
 
 
 def displayed_size(width, height, orientation):
@@ -76,20 +82,25 @@ def displayed_size(width, height, orientation):
 
 
 def merge(existing, found):
-    """The existing candidates in order, then those not seen before, so a number never changes."""
-    ids = {c.id for c in existing}
-    merged = list(existing)
+    """The existing candidates in order, then those not seen before, so a number never changes.
+
+    A stock candidate that another search finds again keeps its record, and adds that search to its queries.
+    """
+    merged = {c.id: c for c in existing}
     for c in found:
-        if c.id not in ids:
-            ids.add(c.id)
-            merged.append(c)
-    return merged
+        known = merged.get(c.id)
+        if known is None:
+            merged[c.id] = c
+        elif c.query and known.query and c.query not in known.queries:
+            merged[c.id] = replace(known, later_queries=(*known.later_queries, c.query))
+    return list(merged.values())
 
 
 def dump(candidates):
     """candidates.yaml as data. `n` is the number on the contact sheet; `query`, beside the id, repeats the
-    record's so a person comparing queries can read it off at a glance."""
-    return {"candidates": [{"n": n, "id": c.id, **({"query": c.query} if c.query else {}),
+    record's so a person comparing queries can read it off at a glance, and `queries` lists every search
+    that found the candidate."""
+    return {"candidates": [{"n": n, "id": c.id, **({"query": c.query, "queries": list(c.queries)} if c.query else {}),
                             **{f: getattr(c, f) for f in FIELDS if f != "id"}, "thumb": c.thumb}
                            for n, c in enumerate(candidates, 1)]}
 
@@ -103,11 +114,16 @@ def load(data):
         missing = [f for f in FIELDS if not isinstance(entry, dict) or entry.get(f) in (None, "")]
         if missing:
             errors.append(f"candidate {n}: missing {', '.join(missing)}")
-        elif not ID.match(str(entry["id"])):
+            continue
+        query, queries = entry["provenance"].get("query"), entry.get("queries") or []
+        if not ID.match(str(entry["id"])):
             errors.append(f"candidate {n}: id {entry['id']!r} is not <provider>-<id>")
+        elif queries and (not isinstance(queries, list) or queries[0] != query):
+            errors.append(f"candidate {n}: queries must be a list starting with its provenance query, {query!r}")
         else:
             found.append(Candidate(str(entry["id"]), int(entry["width"]), int(entry["height"]),
-                                   str(entry["full"]), str(entry["preview"]), dict(entry["provenance"])))
+                                   str(entry["full"]), str(entry["preview"]), dict(entry["provenance"]),
+                                   tuple(queries[1:])))
     return found, errors
 
 
@@ -155,13 +171,16 @@ def extension(data):
     raise ValueError("not a JPEG, PNG or WebP image")
 
 
-def kept_record(candidate, sha256, picked_by, today):
-    """The sidecar for a kept candidate. Returns (record, problems); write it only without problems."""
+def kept_record(candidate, sha256, picked_by, today, fetched=None):
+    """The sidecar for a kept candidate. Returns (record, problems); write it only without problems.
+
+    `fetched` is when a stock candidate's file was downloaded, by default `today`.
+    """
     record = {"source": candidate.provenance.get("source"), "sha256": sha256,
               **{k: v for k, v in candidate.provenance.items() if k != "source"},
               "picked": {"by": picked_by, "on": today}}
     if record["source"] == "stock":
-        record["fetched"] = today
+        record["fetched"] = fetched or today
     return record, provenance.problems(record, sha256)
 
 

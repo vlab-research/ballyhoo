@@ -100,8 +100,33 @@ def test_contact_sheets_hold_twenty_in_a_grid_of_five():
 
 def test_each_stock_candidate_shows_the_query_that_found_it_beside_its_id():
     entries = dump([stock(1), GENERATED])["candidates"]
-    assert list(entries[0])[:3] == ["n", "id", "query"] and entries[0]["query"] == "older woman phone"
-    assert "query" not in entries[1]
+    assert list(entries[0])[:4] == ["n", "id", "query", "queries"] and entries[0]["query"] == "older woman phone"
+    assert "query" not in entries[1] and "queries" not in entries[1]
+
+
+def again(candidate, query):
+    return Candidate(candidate.id, 1, 1, "https://images.example/other.jpeg", "https://images.example/other.jpeg",
+                     {**candidate.provenance, "query": query})
+
+
+def test_a_photo_another_search_finds_again_records_that_search_and_keeps_its_first_query_as_provenance():
+    first = with_original(stock(1), ".jpg", 3000, 2000)
+    merged = merge([first], [again(first, "grandmother phone"), again(first, "older woman phone"),
+                             again(first, "kenyan woman")])
+    [c] = merged
+    assert c.queries == ("older woman phone", "grandmother phone", "kenyan woman")
+    assert c.query == c.provenance["query"] == "older woman phone"
+    assert (c.full, c.width) == ("originals/pexels-1.jpg", 3000), "the rest of the record is the first one's"
+    assert dump(merged)["candidates"][0]["queries"] == ["older woman phone", "grandmother phone", "kenyan woman"]
+    assert load(dump(merged)) == (merged, [])
+    assert merge([GENERATED], [GENERATED]) == [GENERATED]
+
+
+def test_queries_that_do_not_start_with_the_provenance_query_are_an_error():
+    data = dump([stock(1)])
+    data["candidates"][0]["queries"] = ["grandmother phone", "older woman phone"]
+    assert load(data) == ([], ["candidate 1: queries must be a list starting with its provenance query, "
+                               "'older woman phone'"])
 
 
 def test_a_downloaded_original_is_what_the_candidate_names_and_its_record_keeps_the_url_fetched():

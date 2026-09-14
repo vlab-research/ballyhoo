@@ -134,9 +134,10 @@ ma-man:
 
     need = run / "ke-woman"
     data = yaml.safe_load((need / "candidates.yaml").read_text())
-    assert [(e["id"], e.get("query")) for e in data["candidates"]] == [
-        ("fake-bright-2", "bright village"), ("fake-bright-3", "bright village"),
-        ("fake-bright-4", "bright old village"), (data["candidates"][3]["id"], None)]
+    assert [(e["id"], e.get("query"), e.get("queries")) for e in data["candidates"]] == [
+        ("fake-bright-2", "bright village", ["bright village"]),
+        ("fake-bright-3", "bright village", ["bright village", "bright old village"]),
+        ("fake-bright-4", "bright old village", ["bright old village"]), (data["candidates"][3]["id"], None, None)]
     found, errors = candidates.load(data)
     assert errors == []
     assert (found[0].full, found[0].width, found[0].height) == ("originals/fake-bright-2.jpg", 1600, 1200)
