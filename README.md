@@ -105,7 +105,7 @@ picked: {by: A. Author, on: 2026-09-12}
 
 | `source` | Required besides `sha256` |
 |---|---|
-| `stock` | `provider`, `id`, `page_url`, `creator`, `licence`, `licence_url`, `query`, `fetched`, `picked` (`creator_url` optional) |
+| `stock` | `provider`, `id`, `page_url`, `creator`, `licence`, `licence_url`, `query`, `fetched`, `picked` (`creator_url` optional). A photo downloaded before provenance existed is marked `backfilled: <date>` and may omit `query` |
 | `generated` | `provider`, `model`, `prompt`, `seed`, `generated`, `picked` |
 | `made` | `by` (who made it, and the source document), `rights` (on what terms we use it) |
 
