@@ -1,6 +1,6 @@
 import pytest
 
-from ballyhoo.cache import inputs_digest, should_render, template_refs
+from ballyhoo.cache import code_modules, inputs_digest, should_render, template_refs
 
 
 def test_template_refs_are_the_local_files_a_template_loads():
@@ -52,3 +52,31 @@ def test_moving_characters_between_inputs_changes_the_digest():
 ])
 def test_only_an_up_to_date_normal_run_is_skipped(stored, check, force, render):
     assert should_render(stored, "h", check=check, force=force) is render
+
+
+PACKAGE = {
+    "__init__.py": "",
+    "render.py": "import numpy as np\nfrom . import art, fit\nfrom .copyfile import Job\n",
+    "art.py": "from . import cache, provenance\n",
+    "cache.py": "import ast\n",
+    "fit.py": "from .render import Job  # a cycle\n",
+    "copyfile.py": "",
+    "provenance.py": "",
+    "sourcing.py": "from . import art\nfrom .providers import Request\n",
+    "cli.py": "from . import render, sourcing\n",
+    "providers/__init__.py": "",
+    "providers/pexels.py": "from ..candidates import Candidate\nfrom . import Request\n",
+    "candidates.py": "from . import provenance\n",
+}
+
+
+def test_the_code_a_render_runs_is_what_it_imports_from_the_package_and_nothing_else():
+    assert code_modules("render.py", PACKAGE) == [
+        "__init__.py", "art.py", "cache.py", "copyfile.py", "fit.py", "provenance.py", "render.py"]
+
+
+def test_imports_resolve_through_subpackages_and_parent_packages():
+    assert code_modules("sourcing.py", PACKAGE) == [
+        "__init__.py", "art.py", "cache.py", "provenance.py", "providers/__init__.py", "sourcing.py"]
+    assert code_modules("providers/pexels.py", PACKAGE) == [
+        "__init__.py", "candidates.py", "provenance.py", "providers/__init__.py", "providers/pexels.py"]

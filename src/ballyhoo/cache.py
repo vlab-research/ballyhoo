@@ -2,6 +2,7 @@
 
 Pure. The shell reads the files and passes in their contents and digests.
 """
+import ast
 import hashlib
 import re
 
@@ -28,6 +29,38 @@ def inputs_digest(code, text, template, ref_digests):
         h.update(len(data).to_bytes(8, "big"))
         h.update(data)
     return h.hexdigest()
+
+
+def _relative_imports(path, source):
+    """Files within the package that a module's relative imports may load, whether or not they exist."""
+    package = path.split("/")[:-1]
+    found = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.ImportFrom) or not node.level or node.level - 1 > len(package):
+            continue
+        target = package[:len(package) - node.level + 1] + (node.module.split(".") if node.module else [])
+        found.update("/".join(target[:i] + ["__init__.py"]) for i in range(len(target) + 1))
+        if target:
+            found.add("/".join(target) + ".py")
+        for alias in node.names:  # `from . import fit` names a module; `from .art import file_digest` does not
+            found.update(("/".join(target + [alias.name]) + ".py", "/".join(target + [alias.name, "__init__.py"])))
+    return found
+
+
+def code_modules(entry, sources):
+    """The package's files that `entry` loads, itself included, following relative imports.
+
+    `sources` maps each file's path within the package ("render.py", "providers/fal.py") to its
+    source. The render digest covers only these, so a module rendering never imports (a provider,
+    the sourcing shell) can change without re-rendering every study, and one it does import cannot.
+    """
+    found, todo = set(), [entry]
+    while todo:
+        path = todo.pop()
+        if path not in found and path in sources:
+            found.add(path)
+            todo += _relative_imports(path, sources[path])
+    return sorted(found)
 
 
 def should_render(stored, digest, check=False, force=False):

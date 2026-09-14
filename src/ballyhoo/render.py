@@ -130,11 +130,20 @@ def chrome_path():
     return next((p for p in map(shutil.which, names) if p), None)
 
 
+PACKAGE = Path(__file__).resolve().parent
+
+
+def package_sources():
+    """Every Python file in the package, by its path within the package."""
+    return {p.relative_to(PACKAGE).as_posix(): p.read_text() for p in PACKAGE.rglob("*.py")}
+
+
 @lru_cache(maxsize=None)
 def code_digest():
+    """A digest of the code a render runs: this module and what it imports from the package."""
     h = hashlib.sha256()
-    for path in sorted(Path(__file__).resolve().parent.glob("*.py")):
-        h.update(path.name.encode() + file_digest(path).encode())
+    for path in cache.code_modules("render.py", package_sources()):
+        h.update(path.encode() + file_digest(PACKAGE / path).encode())
     return h.hexdigest()
 
 
