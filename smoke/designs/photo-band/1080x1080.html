@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>photo-band 1080x1080</title>
+<!--
+  The smoke-test photo template, made for ballyhoo rather than rebuilt from a
+  partner design: a photo full-bleed in #scene under a CSS band that carries the
+  headline, with an orange rule under the band as the accent.
+
+  The band is only 25% cream, so the headline's contrast depends on the photo: a
+  dark photo fails contrast and a light one passes, which is what previewing a
+  candidate should find out. A study's design would make the band more opaque.
+
+  #scene's own src is a flat placeholder with provenance, so the template renders
+  on its own; preview puts each candidate in its place. The font is the LAC
+  fixture's Hind Bold, so the repository holds one copy.
+-->
+<style>
+  @font-face { font-family: "Hind"; src: url("../../../tests/fixtures/lac/library/fonts/Hind-Bold.ttf"); font-weight: 700; }
+  html, body { margin: 0; }
+  #canvas { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: rgb(196, 188, 172); }
+  #canvas > * { position: absolute; margin: 0; }
+  #scene { left: 0; top: 0; width: 1080px; height: 1080px; object-fit: cover; }
+  #band {
+    left: 0; top: 0; width: 1080px; height: 340px;
+    background: rgba(255, 250, 240, 0.25); border-bottom: 14px solid #E0662B;
+  }
+  #headline {
+    left: 56px; top: 40px; width: 968px; height: 260px; display: flex; align-items: center;
+    font: 700 84px/1.1 "Hind", sans-serif; color: #1A1A1A;
+  }
+  #headline em { font-style: normal; color: #B3261E; }
+</style>
+<div id="canvas">
+  <img id="scene" src="scene-placeholder.png">
+  <div id="band"></div>
+  <h1 id="headline" data-min-size="56" data-max-lines="3"><span>{{text}}</span></h1>
+</div>
