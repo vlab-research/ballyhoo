@@ -58,6 +58,18 @@ def test_an_unknown_source_is_rejected_rather_than_guessed():
     assert problems(["stock"], SHA) == ["provenance must be a map"]
 
 
+def test_a_backfilled_stock_record_may_omit_the_query_nobody_recorded_but_nothing_else():
+    old = {k: v for k, v in STOCK.items() if k != "query"}
+    assert problems(old, SHA) == ["provenance is missing query"]
+    assert problems({**old, "backfilled": datetime.date(2026, 9, 14)}, SHA) == []
+    unpicked = {k: v for k, v in old.items() if k != "picked"}
+    assert problems({**unpicked, "backfilled": "2026-09-14"}, SHA) == ["provenance is missing picked"]
+    assert problems({**old, "backfilled": "recently"}, SHA) == [
+        "provenance is missing query", "provenance backfilled must be a date"]
+    assert problems({k: v for k, v in GENERATED.items() if k != "prompt"} | {"backfilled": "2026-09-14"}, SHA) == [
+        "provenance is missing prompt"]
+
+
 def test_dates_and_seeds_are_typed():
     assert problems({**STOCK, "fetched": "last week"}, SHA) == ["provenance fetched must be a date"]
     assert problems({**GENERATED, "seed": "7"}, SHA) == ["provenance seed must be a whole number"]

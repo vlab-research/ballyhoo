@@ -16,6 +16,7 @@ REQUIRED = {
     "generated": ("provider", "model", "prompt", "seed", "generated", "picked"),
 }
 DATES = ("fetched", "generated")
+BACKFILL_OPTIONAL = ("query",)  # a stock photo downloaded before provenance existed has no recorded search
 
 
 def image_refs(refs):
@@ -54,7 +55,10 @@ def problems(record, sha256):
     if source not in REQUIRED:
         return [f"provenance source must be one of {', '.join(REQUIRED)}, not {source!r}"]
     found = []
-    missing = [k for k in ("sha256", *REQUIRED[source]) if _blank(record.get(k))]
+    required = REQUIRED[source]
+    if source == "stock" and not _blank(record.get("backfilled")) and _is_date(record["backfilled"]):
+        required = tuple(k for k in required if k not in BACKFILL_OPTIONAL)
+    missing = [k for k in ("sha256", *required) if _blank(record.get(k))]
     if missing:
         found.append(f"provenance is missing {', '.join(missing)}")
     if not _blank(record.get("sha256")) and record["sha256"] != sha256:
@@ -69,4 +73,6 @@ def problems(record, sha256):
     if "picked" in REQUIRED[source] and picked is not None:
         if not isinstance(picked, dict) or _blank(picked.get("by")) or not _is_date(picked.get("on", "")):
             found.append("provenance picked needs by (the person who picked it) and on (a date)")
+    if not _blank(record.get("backfilled")) and not _is_date(record["backfilled"]):
+        found.append("provenance backfilled must be a date")
     return found
