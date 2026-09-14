@@ -147,11 +147,11 @@ Researched from the providers' current docs and terms. Details that bind go into
 Each ends with the suite green and a commit.
 
 **Status 2026-09-14:** 1–4 are built and tested. Called live: Openverse, Gemini, Pexels, fal.
-Built against the docs but never called: Firefly (no credentials). Partner art in
-`recruitment-creative/` is backfilled as `made` (19 of 20 files, wording approved by the
-author). `scenes/kids-peeking.png` is a Pexels or Unsplash photo, not Express art, so it has
-no record until its source is found; on this branch SSO passes 72 of 72 and LAC 36 of 42,
-the six failures being `kids-boxes`. **6–8 are superseded
+Built against the docs but never called: Firefly (no credentials). All 20 images in
+`recruitment-creative/` have provenance: 18 as `made` (wording approved by the author), and
+`scenes/kids-peeking.png` and `scenes/father-toddler-blanket.png` as backfilled `stock` records.
+Both are Pexels photos (17329578, 27175924), matched pixel for pixel against the author's
+downloads and picked by the author. On this branch SSO passes 72 of 72 and LAC 42 of 42. **6–8 are superseded
 by `planning/imagery-pipeline.md`** (briefs, runs, preview, a review page, verdicts, and the
 smoke test); a future agent starts there. 5 waits for real picks: photo templates for studies
 belong in `recruitment-creative/designs/`, built around the images chosen.
