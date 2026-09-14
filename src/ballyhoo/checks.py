@@ -2,14 +2,17 @@
 
 Pure. Screenshots arrive as numpy arrays (as rendered; with the text made
 transparent; with the text forced black, and forced white; and the figure alone),
-layout as rects from fit.py. Out come failure
-messages, every failing check reported, not just the first.
+layout as rects from fit.py, and slot images as the page measured them. Out come
+failure messages, every failing check reported, not just the first.
 """
 import math
 import re
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import ndimage
+
+from .fit import Rect
 
 MAX_TEXT_SHARE = 0.20  # text pixels as a share of the canvas; more hurts Meta delivery
 TEXT_DIFF = 48         # a pixel is glyph if black and white text differ there by more than this
@@ -17,6 +20,57 @@ MIN_GLYPH_PX = 20      # fragments with fewer text pixels (a full stop) do not d
 ALPHA_MIN = 40         # figure pixels fainter than this are not the figure
 SPECK_PX = 500         # detached mask bits smaller than this are background-removal leftovers
 BLANK_SHARE = 0.99     # one colour covering more than this means a layer failed to load
+MAX_UPSCALE = 1.25     # a photo drawn larger than this, in either direction, looks soft
+
+
+@dataclass(frozen=True)
+class SlotImage:
+    """An <img> in a slot (#scene), as the page drew it."""
+    slot: str
+    box: Rect
+    natural: tuple    # (width, height) of the decoded image
+    object_fit: str
+    src: str          # the URL the element shows, which srcset or <picture> can make differ from src
+
+
+def slot_images(raw):
+    """Slot images from the page's measurements. Returns (images, errors); a slot must be an <img>."""
+    images, errors = [], []
+    for r in raw:
+        if r["tag"] != "img":
+            errors.append(f"#{r['slot']} must be an <img>, not a <{r['tag']}>")
+        else:
+            images.append(SlotImage(r["slot"], Rect.of(r["box"]), (r["naturalWidth"], r["naturalHeight"]),
+                                    r["objectFit"], r["src"]))
+    return images, errors
+
+
+def drawn_scale(image):
+    """How many times its natural size an image is drawn, (across, down), under its CSS object-fit."""
+    across, down = image.box.w / image.natural[0], image.box.h / image.natural[1]
+    fits = {"fill": (across, down), "cover": (max(across, down),) * 2, "contain": (min(across, down),) * 2,
+            "none": (1.0, 1.0), "scale-down": (min(1.0, across, down),) * 2}
+    if image.object_fit not in fits:
+        raise ValueError(f"#{image.slot}: unsupported object-fit {image.object_fit!r}")
+    return fits[image.object_fit]
+
+
+def upscale_failures(image, max_scale=MAX_UPSCALE):
+    across, down = drawn_scale(image)
+    if max(across, down) <= max_scale:
+        return []
+    scale = f"{across:.2f}x" if across == down else f"{across:.2f}x across and {down:.2f}x down"
+    (w, h), box = image.natural, image.box
+    return [f"#{image.slot} is upscaled {scale} (max {max_scale:g}x): a {w}x{h} image in a {box.w:g}x{box.h:g} "
+            f"box with object-fit: {image.object_fit}"]
+
+
+def swap_failures(images, slot, src):
+    """Whether the slot shows the image put into it."""
+    shown = next((i.src for i in images if i.slot == slot), None)
+    if shown == src:
+        return []
+    return [f"#{slot} shows {shown}, not the image put into it ({src})"]
 
 
 def luminance(rgb):
@@ -111,7 +165,7 @@ def blank_failures(full):
     return []
 
 
-def evaluate(fit, settings, canvas, size, full, notext, black_text, white_text, figure_alpha=None):
+def evaluate(fit, settings, canvas, size, full, notext, black_text, white_text, figure_alpha=None, images=()):
     """All checks on one render. Returns (failures, summary)."""
     glyphs = glyph_pixels(black_text, white_text)
     share = float(glyphs.mean())
@@ -126,9 +180,13 @@ def evaluate(fit, settings, canvas, size, full, notext, black_text, white_text, 
         hits = overlap_px(fit.lines, figure_mask(figure_alpha), settings.collide_margin)
         if hits:
             failures.append(f"headline overlaps #figure ({hits} px)")
+    for image in images:
+        failures += upscale_failures(image)
     failures += blank_failures(full)
 
     summary = f"{fit.size:g}px, {len(fit.lines)} lines"
     if worst is not None:
         summary += f", contrast {worst:.1f}:1, text {share:.0%}"
+    for image in images:
+        summary += f", {image.slot} {max(drawn_scale(image)):.2f}x"
     return failures, summary

@@ -36,11 +36,16 @@ def write_sidecar(image, record):
     return path
 
 
-def unsourced_images(template):
-    """Every provenance problem among the images a template references, each naming its image."""
+def unsourced_images(template, exempt=()):
+    """Every provenance problem among the images a template references, each naming its image.
+
+    `exempt` holds references, as the template writes them, that the render does not show.
+    """
     template = Path(template)
     found = []
     for ref in provenance.image_refs(cache.template_refs(template.read_text())):
+        if ref in exempt:
+            continue
         image = (template.parent / ref).resolve()
         if not image.is_file():
             continue  # the render hash reports missing files

@@ -126,6 +126,27 @@ def test_an_image_without_provenance_fails_even_when_its_png_is_up_to_date(tmp_p
     assert not png.exists()
 
 
+def test_a_scene_drawn_larger_than_its_image_fails_saying_how_much(tmp_path):
+    template = TEMPLATE.replace("#figure {", "#scene { left: 0; top: 0; width: 400px; height: 400px; object-fit: cover; }\n"
+                                "  #figure {").replace('<img id="figure"', '<img id="scene" src="scene.png">\n  <img id="figure"')
+    f = project(tmp_path, 'demo:\n  AR:\n    uno: "Hola."\n', template)
+    scene = tmp_path / "designs" / "demo" / "scene.png"
+
+    def scene_of(side):
+        Image.new("RGB", (side, side), (230, 230, 225)).save(scene)
+        art.sidecar(scene).unlink(missing_ok=True)
+        art.write_sidecar(scene, provenance.made(art.file_digest(scene), "test_render.py", "test fixture"))
+
+    scene_of(400)
+    [result], _ = render.run(f, check=True)
+    assert result.status == "ok" and result.message.endswith(", scene 1.00x")
+    scene_of(100)
+    [result], _ = render.run(f, check=True)
+    assert result.status == "FAIL"
+    assert result.message.startswith(
+        "#scene is upscaled 4.00x (max 1.25x): a 100x100 image in a 400x400 box with object-fit: cover [")
+
+
 def test_an_image_replaced_under_its_old_provenance_fails(tmp_path):
     f = project(tmp_path, 'demo:\n  AR:\n    uno: "Hola."\n')
     Image.new("RGBA", (200, 250), (200, 60, 80, 255)).save(tmp_path / "designs" / "demo" / "figure.png")

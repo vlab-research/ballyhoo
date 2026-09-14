@@ -116,10 +116,11 @@ def woman():
 
 
 def hamster():
-    img = Image.new("RGB", (450, 450), (238, 235, 228))
+    """900 px, the size hamster-band draws its #scene: any smaller fails the scene-upscale check."""
+    img = Image.new("RGB", (900, 900), (238, 235, 228))
     d = ImageDraw.Draw(img)
-    d.ellipse([130, 40, 320, 360], fill=(170, 165, 160), outline=INK, width=3)
-    d.rectangle([60, 330, 390, 450], fill=(250, 250, 250), outline=INK, width=3)
+    d.ellipse([260, 80, 640, 720], fill=(170, 165, 160), outline=INK, width=6)
+    d.rectangle([120, 660, 780, 900], fill=(250, 250, 250), outline=INK, width=6)
     return img
 
 

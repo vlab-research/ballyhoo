@@ -42,6 +42,9 @@ HASH_KEY = "render-inputs"
 # Mask images are fetched in CORS mode, which file:// pages fail without this flag.
 CHROME_ARGS = ["--allow-file-access-from-files", "--font-render-hinting=none"]
 
+# The <img> ids the page measures: another image can be put into each, and each fails when drawn upscaled.
+SLOTS = ("scene",)
+
 TEXT_COLOUR = """#headline, #headline * {{ color: {} !important;
   text-shadow: none !important; -webkit-text-stroke: 0 !important; }}"""
 FIGURE_ONLY = """html, body, #canvas { background: transparent !important; }
@@ -76,12 +79,25 @@ PREPARE_JS = """async (copyHtml) => {
   ]);
 }"""
 
-READ_JS = """() => {
+# Run before PREPARE_JS: decode() called after src changes waits for the new image, not the one it replaces.
+SWAP_JS = """([slot, url]) => {
+  const img = document.getElementById(slot);
+  if (!(img instanceof HTMLImageElement)) throw new Error('template needs <img id="' + slot + '"> to put an image in');
+  img.src = url;
+}"""
+
+READ_JS = """(slots) => {
   const h = document.getElementById('headline');
   const c = document.getElementById('canvas').getBoundingClientRect();
+  const images = slots.map(id => document.getElementById(id)).filter(Boolean).map(e => {
+    const r = e.getBoundingClientRect();
+    return {slot: e.id, tag: e.tagName.toLowerCase(), box: {x: r.left, y: r.top, w: r.width, h: r.height},
+            naturalWidth: e.naturalWidth, naturalHeight: e.naturalHeight,
+            objectFit: getComputedStyle(e).objectFit, src: e.currentSrc};
+  });
   return {attrs: {...h.dataset}, start: parseFloat(getComputedStyle(h).fontSize),
           canvas: {x: c.left, y: c.top, w: c.width, h: c.height},
-          hasFigure: !!document.getElementById('figure')};
+          hasFigure: !!document.getElementById('figure'), images};
 }"""
 
 # Measure only: the raw text rects at each size. fit.choose decides.
@@ -197,15 +213,25 @@ async def screenshot(page, W, H, css=None, omit_background=False):
     return np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))
 
 
-async def render(browser, job):
-    """Returns (image, failures, summary, fit)."""
-    W, H = job.size
+async def render(browser, template, text, swap=None):
+    """Render a template with a headline. Returns (image, failures, summary, fit).
+
+    `swap` is (slot id, image path): the page shows that image in the slot instead of the template's own.
+    """
+    if swap and swap[0] not in SLOTS:
+        raise ValueError(f"cannot put an image into #{swap[0]}: slots are {', '.join(SLOTS)}")
+    swap_url = swap and Path(swap[1]).resolve().as_uri()
+    W, H = copyfile.template_size(template.name)
     page = await browser.new_page(viewport={"width": W, "height": H}, device_scale_factor=1)
     try:
-        await page.goto(job.template.as_uri(), wait_until="load")
-        await page.evaluate(PREPARE_JS, copyfile.markup(job.text))
-        info = await page.evaluate(READ_JS)
+        await page.goto(template.as_uri(), wait_until="load")
+        if swap:
+            await page.evaluate(SWAP_JS, [swap[0], swap_url])
+        await page.evaluate(PREPARE_JS, copyfile.markup(text))
+        info = await page.evaluate(READ_JS, list(SLOTS))
         settings, errors = fit.parse_settings(info["attrs"], info["start"])
+        images, problems = checks.slot_images(info["images"])
+        errors += problems
         if errors:
             raise TemplateError("; ".join(errors))
         measured = await page.evaluate(MEASURE_JS, fit.candidate_sizes(settings))
@@ -219,7 +245,9 @@ async def render(browser, job):
     finally:
         await page.close()
     failures, summary = checks.evaluate(chosen, settings, fit.Rect.of(info["canvas"]), (W, H), full, notext,
-                                        black_text, white_text, None if figure is None else figure[..., 3])
+                                        black_text, white_text, None if figure is None else figure[..., 3], images)
+    if swap:
+        failures = checks.swap_failures(images, swap[0], swap_url) + failures
     return full[..., :3], failures, summary, chosen
 
 
@@ -233,7 +261,7 @@ async def process(browser, sem, job, out_dir, check, force):
             if not failures:
                 if not cache.should_render(stored_hash(out) if out.exists() else None, digest, check, force):
                     return "skip", "up to date", None
-                image, failures, summary, chosen = await render(browser, job)
+                image, failures, summary, chosen = await render(browser, job.template, job.text)
         except Exception as e:  # attribute every failure to its creative
             return "FAIL", f"{type(e).__name__}: {e}", None
     if failures:

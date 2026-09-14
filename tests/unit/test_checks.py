@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from ballyhoo.checks import (blank_failures, canvas_failures, contrast_ratio, evaluate, figure_mask, fit_failures,
-                             glyph_pixels, overlap_px, parse_css_color, worst_contrast)
+from ballyhoo.checks import (SlotImage, blank_failures, canvas_failures, contrast_ratio, drawn_scale, evaluate,
+                             figure_mask, fit_failures, glyph_pixels, overlap_px, parse_css_color, slot_images,
+                             swap_failures, upscale_failures, worst_contrast)
 from ballyhoo.fit import Fit, Fragment, Rect, Settings
 
 CREAM, TEAL, BLUE, BLACK = (238, 225, 208), (1, 59, 73), (0, 140, 187), (0, 0, 0)
@@ -133,6 +134,60 @@ def test_a_blank_canvas_is_caught_through_compression_noise():
     assert blank_failures(noisy) == []
 
 
+def placed(natural, box=(1080, 1080), object_fit="cover", src="file:///run/ke/originals/fake-1.jpg"):
+    return SlotImage("scene", Rect(0, 0, *box), natural, object_fit, src)
+
+
+@pytest.mark.parametrize("natural, box, object_fit, scale", [
+    ((1600, 1200), (1080, 1080), "cover", (0.9, 0.9)),
+    ((400, 400), (1080, 1080), "cover", (2.7, 2.7)),
+    ((2000, 500), (1000, 1000), "cover", (2.0, 2.0)),    # a wide image in a square: its height decides
+    ((2000, 500), (1000, 1000), "contain", (0.5, 0.5)),  # ...and contained, its width does
+    ((600, 1000), (1000, 1000), "fill", (1000 / 600, 1.0)),
+    ((400, 400), (1080, 1080), "none", (1.0, 1.0)),
+    ((400, 400), (1080, 1080), "scale-down", (1.0, 1.0)),
+    ((2000, 2000), (1000, 1000), "scale-down", (0.5, 0.5)),
+])
+def test_drawn_scale_follows_object_fit(natural, box, object_fit, scale):
+    assert drawn_scale(placed(natural, box, object_fit)) == pytest.approx(scale)
+
+
+def test_a_scene_fails_only_when_drawn_more_than_one_and_a_quarter_times_its_size():
+    assert upscale_failures(placed((864, 864))) == []  # exactly 1.25x
+    assert upscale_failures(placed((860, 860))) == [
+        "#scene is upscaled 1.26x (max 1.25x): a 860x860 image in a 1080x1080 box with object-fit: cover"]
+    assert upscale_failures(placed((400, 400))) == [
+        "#scene is upscaled 2.70x (max 1.25x): a 400x400 image in a 1080x1080 box with object-fit: cover"]
+
+
+def test_a_stretched_scene_fails_on_the_direction_it_is_stretched_in():
+    assert upscale_failures(placed((600, 1000), (1000, 1000), "fill")) == [
+        "#scene is upscaled 1.67x across and 1.00x down (max 1.25x): a 600x1000 image in a 1000x1000 box "
+        "with object-fit: fill"]
+    assert upscale_failures(placed((1000, 600), (1000, 1000), "contain")) == []
+
+
+def test_an_unknown_object_fit_is_an_error_not_a_guess():
+    with pytest.raises(ValueError, match="unsupported object-fit 'stretch'"):
+        drawn_scale(placed((400, 400), object_fit="stretch"))
+
+
+def test_a_slot_must_be_an_img():
+    box = {"x": 0, "y": 0, "w": 1080, "h": 1080}
+    images, errors = slot_images([
+        {"slot": "scene", "tag": "img", "box": box, "naturalWidth": 1600, "naturalHeight": 1200,
+         "objectFit": "cover", "src": "file:///a.jpg"}])
+    assert (images, errors) == ([SlotImage("scene", Rect(0, 0, 1080, 1080), (1600, 1200), "cover", "file:///a.jpg")], [])
+    assert slot_images([{"slot": "scene", "tag": "div", "box": box}]) == ([], ["#scene must be an <img>, not a <div>"])
+
+
+def test_a_swapped_slot_must_show_the_image_put_into_it():
+    image = placed((1600, 1200), src="file:///run/a.jpg")
+    assert swap_failures([image], "scene", "file:///run/a.jpg") == []
+    assert swap_failures([image], "scene", "file:///run/b.jpg") == [
+        "#scene shows file:///run/a.jpg, not the image put into it (file:///run/b.jpg)"]
+
+
 def scene(glyphs_on, text_colour, figure_at=None, text_rows=slice(10, 30)):
     """A 100x100 cream canvas with one line of 'text' and, optionally, a figure."""
     notext = canvas(100, 100, CREAM)
@@ -152,6 +207,15 @@ def test_a_clean_creative_passes_with_a_summary():
     failures, summary = evaluate(fit, SETTINGS, Rect(0, 0, 100, 100), (100, 100), *shots)
     assert failures == []
     assert summary == f"70px, 1 lines, contrast {contrast_ratio(BLACK, CREAM):.1f}:1, text 4%"
+
+
+def test_an_upscaled_scene_is_reported_with_the_other_checks_and_its_scale_summarised():
+    shots = scene(slice(10, 30), BLACK)
+    fit = Fit(True, 70, (Rect(5, 5, 30, 30),), (Fragment(Rect(5, 5, 30, 30), "rgb(0, 0, 0)"),), False)
+    small = placed((40, 40), box=(100, 100))
+    failures, summary = evaluate(fit, SETTINGS, Rect(0, 0, 100, 100), (100, 100), *shots, images=[small])
+    assert failures == upscale_failures(small)
+    assert summary.endswith(", scene 2.50x")
 
 
 def test_every_failing_check_is_reported_not_just_the_first():
