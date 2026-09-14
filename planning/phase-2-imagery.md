@@ -24,6 +24,10 @@ acceptance test for this phase.
 | Every provider is called over **plain HTTP**: pure request builders and response parsers, a thin `httpx` shell. No provider SDKs. Vertex authenticates through application default credentials (`google-auth`). | Plan |
 | No provider returns alpha (Gemini, FLUX and Firefly all return opaque images), so **sourced images go in as `scenes/`** first. Cut-outs wait for a background-removal step with a mask check. | Plan |
 | The sidecar stores the file's **sha256**, so an image replaced under an old sidecar fails rather than crediting the wrong source. | Plan |
+| **Photos come from stock; image models make drawings** (illustrated figures used as cut-outs, like the partner character art), never photographs. The work on photos is in the search queries, which people and agents both iterate on. | Author, 2026-09-14 |
+| **No one looks older than middle age**, even for a 60+ stratum: people identify with someone younger. Recorded, with its reason, in `docs/creative-rules.md` (on `main`). | Author, 2026-09-14 |
+| **Drawings are prompted in words for the house style**, from the author's past prompts, not given existing art as reference images. The existing art was generated in the author's own account, so references are permitted if that changes. | Author, 2026-09-14 |
+| The author's past process for cut-outs: generate in Firefly, then Adobe Express's automatic remove background. The ballyhoo equivalent is being spiked (a matting model or a chroma key, scored against those Express cut-outs). | Author, 2026-09-14 |
 
 ## Findings: the APIs as of 2026-09-12
 
@@ -141,6 +145,77 @@ These are the `PRICE` tables in the provider modules, which `ballyhoo source` es
   multiples of 16). Candidates record the real size, and templates crop with `object-fit`,
   but a preview check for upscaling will see it. The author's `.env` names the key
   `FAL_API_KEY`; the code reads `FAL_KEY`, fal's own name.
+- **Side-by-side, 2026-09-14** (3 needs for 60+ people; Pexels at 2 queries × 8, then 3 images each
+  from `gemini-3.1-flash-image` at 1K, `gemini-3-pro-image` at 1K, `fal-ai/flux-2-pro` and
+  `fal-ai/flux-2-max`, with one prompt per need for every model; 36 images, about $3.12, no
+  refusals). This comparison is what led the author to decide that photos come from stock and
+  generation makes drawings.
+  - **Pexels could not serve any need**: studio shoots of older white women for Kenya, veiled women
+    at tourist spots for Morocco, medina men without phones.
+  - **Gemini was best at generated photos.** Pro edged out Flash; Flash repeated one composition.
+    One Pro image had a flat grey band across the top. The round-2 postcard look was gone once
+    prompts named ordinary materials (breeze block, rendered concrete, corrugated iron).
+  - **FLUX gave every image a warm orange charity-appeal grade** despite the prompt, and produced
+    lettering-like marks, paper notices and a logo-like badge. It dressed Moroccan men in
+    South Asian or Gulf clothing. Max cost twice pro and was three times slower, with no gain.
+  - **Several "60+" women read 50s**, and "waist-up" was often ignored.
+  - **Tool edges:**
+    - Gemini at 1K returns 1024 and fal returns 1072 for a 1080 request, both without a warning.
+    - `fal.py` detects refusals by `has_nsfw_concepts`, which `flux-2-max`'s schema lacks, so a
+      filtered image there may not read as a refusal.
+    - Contact-sheet labels overlap portrait tiles.
+- **Pexels query spike, 60+ people, 2026-09-14** (50 searches, 632 unique photos, first-pass
+  grades by an agent): 8 fit, none with a phone. Kenyan woman 5 (best query
+  `elderly woman farmer Kenya`), Moroccan man 3 (`old man Taroudant`, `elderly man Tiznit`),
+  unveiled Moroccan woman 0.
+  - **"phone", "smartphone" and "texting" outrank place words** and pull in Western studio shoots
+    of seniors.
+  - **Place words do match through alt text**, but only in short queries (age, sex, place or
+    job).
+  - **Famous places return what photographers shoot there** (Chefchaouen doors, Maasai
+    beadwork). Small towns return ordinary people but run out within 15 results.
+  - **Clothing and ethnic words give costume portraits.** Negation backfires: "without
+    headscarf" returned only headscarves.
+  - **The catalogue is the limit.** By the third or fourth query, 50–90% of results are
+    duplicates.
+  - **Alt text usually names the country** and "black and white", and would reject about half
+    of the results unseen.
+  - **Pexels documentation:** `locale` sets only the query language, never a region filter.
+    Tags describe what is visible and name places; they never state ethnicity.
+- **Pexels query spike, middle-aged people, 2026-09-14** (27 searches, after the age rule).
+  Fits, first as confirmed Kenya or Morocco, then with look-alikes allowed:
+  - Kenyan woman 1, or 4 with Ethiopian and Ugandan look-alikes;
+  - Moroccan man 3, or 7 with Turkish look-alikes;
+  - unveiled Moroccan woman 0 of 110.
+
+  **Requiring a visible phone leaves zero for every need.**
+  - **Working men of 40–55 are common** (`middle aged man Tiznit`, `Moroccan village man`).
+    Rural Kenya on Pexels is mostly Maasai elder portraits, and its middle-aged women are in
+    Nairobi markets.
+  - **"middle aged" and "mature" barely steer**: a third of results still read too old, and
+    caption ages are unreliable.
+  - **Job words** (farmer, fisherman, shepherd) find the right ages but pull in other countries.
+  - **Printing on clothing and sacks** cost five Kenyan near-misses.
+  - **Conclusion:** stock can serve men and, thinly, Kenyan women. The unveiled Moroccan woman
+    needs a drawing.
+- **Tooling the query loop needs** (each item was hand-scripted in the spikes):
+  - many queries in one command, with a sheet per query;
+  - duplicate reporting;
+  - larger tiles showing id and alt text;
+  - grades per photo, with keep rate per query (built in step 3 of `imagery-pipeline.md`);
+  - a next-page option;
+  - automatic flags for black-and-white photos and for alt text naming another country;
+  - Pexels `orientation` and `size` filters.
+- **Research, 2026-09-14: other stock sources and cut-outs.**
+  - **Pixabay** has the same shape as Pexels and needs no credit on the ad, but bans systematic
+    mass downloads. It is the stock source to add next.
+  - **Adobe Stock** is paid per image and is the larger catalogue.
+  - **Getty, Shutterstock and Wikimedia Commons** fit poorly. **Unsplash+** bans AI use.
+  - **No image model returns alpha.** The options are background-removal models on fal
+    (`fal-ai/bria/background/remove` at $0.018; `fal-ai/birefnet/v2`), Firefly's remove-background,
+    local rembg (pin `birefnet-general`; its default model needs a commercial licence), or a
+    chroma key on a solid background. Matting models tend to drop thin strokes and white fills
+    in line art.
 
 ## Provenance sidecar
 
@@ -198,6 +273,8 @@ belong in `recruitment-creative/designs/`, built around the images chosen.
 ## Round-2 briefs (the first real queries)
 
 People using a phone in an everyday setting. Not tourist imagery, not poverty imagery.
+Under the age rule (2026-09-14), anyone "60+" below is shown as someone who looks about
+50.
 
 - **Kenya:** woman 60+; man 60+; three-generation family; farmer or market-centre trader
   in a rural area; man and woman 45–59.
@@ -219,6 +296,14 @@ People using a phone in an everyday setting. Not tourist imagery, not poverty im
 - **FLUX through fal or BFL direct?** fal: one key also covers background removal, no C2PA.
   BFL: first party, signed C2PA; read its API Service Terms' licence to inputs and outputs first.
 - **Firefly:** does vlab have, or want, an Adobe Firefly Services contract?
-- **Which Google Cloud project pays for Vertex image generation?** The default gcloud
-  project is `toixotoixo`.
-- Stock photos or generated images as the default source of people: the spike decides.
+- **Which Google Cloud project pays for Vertex image generation?** `.env` now sets
+  `GOOGLE_CLOUD_PROJECT`; the spikes ran on it.
+- **Must a phone be visible in a stock photo?** Requiring one leaves no Pexels fits for these
+  needs.
+- **May a photo of someone who looks the part stand in for a country** (Turkish for Moroccan,
+  Ethiopian for Kenyan)? Allowing it roughly doubles the fits.
+- **A second stock source:** Pixabay (free; the author registers for a key) or Adobe Stock
+  (paid; does vlab's Adobe plan include Stock credits?).
+- **The author's drawing prompts**, which the drawing work starts from.
+- ~~Stock photos or generated images as the default source of people~~: decided, stock for
+  photos and generation for drawings (2026-09-14).
