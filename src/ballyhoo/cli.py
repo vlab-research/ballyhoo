@@ -74,6 +74,10 @@ def main(argv=None):
     b.add_argument("--out", type=Path, help="the directory runs go in (default: runs/ next to the brief)")
     b.set_defaults(run=run_source)
 
+    v = sub.add_parser("preview", help="render a run's candidates into its brief's preview templates, and check them")
+    v.add_argument("folder", metavar="run", type=Path, help="a run folder that source made")
+    v.set_defaults(run=run_preview)
+
     args = ap.parse_args(argv)
     return args.run(ap, args)
 
@@ -191,6 +195,25 @@ def run_source(ap, args):
         print(f"FAIL  {e}")
     print(f"run {run}: {len(records)} requests, {len(errors)} errors")
     return 1 if errors else 0
+
+
+def run_preview(ap, args):
+    if not args.folder.is_dir():
+        ap.error(f"{args.folder}: no such run folder")
+    outcomes, empty, errors = runs.render_previews(args.folder, PROVIDERS)
+    for name in empty:
+        print(f"skip  {name}: no candidates in this run")
+    for o in outcomes:
+        p = o.preview
+        detail = o.error or ("; ".join(o.failures) + f" [{o.summary}]" if o.failures else o.summary)
+        print(f"{o.status:<5} {p.need}/{p.candidate} {p.template}  {detail}")
+    for e in errors:
+        print(f"FAIL  {e}")
+    if errors:
+        return 1
+    count = {s: sum(o.status == s for o in outcomes) for s in ("pass", "fail", "error")}
+    print(f"{len(outcomes)} previews: {count['pass']} pass, {count['fail']} fail, {count['error']} errors")
+    return 1 if count["error"] else 0
 
 
 def run_keep(ap, args):

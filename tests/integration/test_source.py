@@ -1,31 +1,14 @@
 """`ballyhoo source`: briefs through the fake provider and a mock transport. No network, no browser."""
 import datetime
 
-import httpx
 import pytest
 import yaml
 from PIL import Image
 
-import fake_provider
-from ballyhoo import candidates, cli, sourcing
+from ballyhoo import candidates, cli
 
-REAL_CLIENT = sourcing.client
 TODAY = datetime.date.today().isoformat()
 PREVIEW = "defaults:\n  preview: {templates: [photo-band/1080x1080], copy: Take a short survey.}\n"
-
-
-@pytest.fixture
-def sent(monkeypatch):
-    """Make the fake provider the only one, answering through a mock transport; the requests it is sent."""
-    requests = []
-
-    def handler(request):
-        requests.append(request)
-        return fake_provider.serve(request)
-
-    monkeypatch.setattr(cli, "PROVIDERS", {"fake": fake_provider})
-    monkeypatch.setattr(sourcing, "client", lambda **kw: REAL_CLIENT(transport=httpx.MockTransport(handler), **kw))
-    return requests
 
 
 @pytest.fixture

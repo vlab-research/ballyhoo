@@ -1,11 +1,29 @@
 import shutil
 from pathlib import Path
 
+import httpx
 import pytest
 
+import fake_provider
 import lac_art
+from ballyhoo import cli, sourcing
 
 FIXTURES = Path(__file__).parent / "fixtures"
+REAL_CLIENT = sourcing.client
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    """Make the fake provider the only one, answering through a mock transport; the requests it is sent."""
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return fake_provider.serve(request)
+
+    monkeypatch.setattr(cli, "PROVIDERS", {"fake": fake_provider})
+    monkeypatch.setattr(sourcing, "client", lambda **kw: REAL_CLIENT(transport=httpx.MockTransport(handler), **kw))
+    return requests
 
 
 def pytest_addoption(parser):
