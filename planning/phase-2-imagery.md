@@ -390,10 +390,13 @@ Under the age rule (2026-09-14), anyone "60+" below is shown as someone who look
   `GOOGLE_CLOUD_PROJECT`; the spikes ran on it.
 - **Must a phone be visible in a stock photo?** Requiring one leaves no Pexels fits for these
   needs.
-- **May a photo of someone who looks the part stand in for a country** (Turkish for Moroccan,
-  Ethiopian for Kenyan)? Allowing it roughly doubles the fits.
-- **A second stock source:** Pixabay (free; the author registers for a key) or Adobe Stock
-  (paid; does vlab's Adobe plan include Stock credits?).
+- ~~May a photo of someone who looks the part stand in for a country?~~ Decided
+  (2026-09-16): **the region is what matters, not the country**, and work continues on Pexels.
+  Paid catalogues are parked: Shutterstock's API is the only self-serve one (its free tier is
+  search-only over 3M images; every licensing plan is "contact sales"), Getty and iStock need
+  an account rep, and Adobe Stock's API is enterprise-only.
+- **Sensitive use** is not a concern for the author (2026-09-16), so it does not rule out a
+  paid catalogue later.
 - **The author's drawing prompts**, which the drawing work starts from.
 - ~~Stock photos or generated images as the default source of people~~: decided, stock for
   photos and generation for drawings (2026-09-14).
