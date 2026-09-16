@@ -96,18 +96,18 @@ defaults:
     templates: [photo-band/1080x1080]
     copy: "Take a short survey and get KES 100 airtime."
 
-ke-older-woman:
-  need: A Kenyan woman aged 60 or more, in a rural setting, using a mobile phone.
+ea-woman:
+  need: A woman who reads as East African, middle-aged, in a photo that stops the scroll.
   search:
-    pexels: older african woman mobile phone village     # a string, or a list of queries
+    pexels: middle aged african woman portrait smiling     # a string, or a list of queries
   generate:
-    gemini: Photograph of a Kenyan woman in her sixties sitting outside her home in a rural village, reading a message on her mobile phone.
+    gemini: Photograph of a woman in her fifties sitting outside her home, reading a message on her mobile phone.
     fal:                                                   # the map form carries provider options
-      prompt: Photograph of a Kenyan woman in her sixties …
+      prompt: Photograph of a woman in her fifties …
       model: fal-ai/flux-2-max
 
-ma-older-man:
-  need: A Moroccan man aged 60 or more, rural south, using a mobile phone.
+na-man:
+  need: A man who reads as North African or Arab, middle-aged, in his own shop.
   generate:
     gemini: {prompt: "…", image_size: 1K}
   n: 4                            # any default can be overridden per need
@@ -125,7 +125,7 @@ ma-older-man:
 runs/2026-09-13-1/
   brief.yaml               the brief as it was run (a copy)
   manifest.yaml            what ran: see below
-  ke-older-woman/
+  ea-woman/
     candidates.yaml        the existing candidates format
     thumbs/  sheet-01.png  generated/
     originals/<id>.<ext>   full-size stock files, as delivered
@@ -147,8 +147,8 @@ finished: 2026-09-13T10:04:40Z
 ballyhoo: <code digest, as the render cache uses>
 estimated_cost_usd: 0.86
 requests:
-  - {need: ke-older-woman, provider: pexels, kind: search, query: "…", results: 2}
-  - {need: ke-older-woman, provider: gemini, kind: generate, model: gemini-3.1-flash-image, seeds: [81, 82], images: 2, refused: 0, seconds: 27.4}
+  - {need: ea-woman, provider: pexels, kind: search, query: "…", results: 2}
+  - {need: ea-woman, provider: gemini, kind: generate, model: gemini-3.1-flash-image, seeds: [81, 82], images: 2, refused: 0, seconds: 27.4}
 errors: []
 ```
 

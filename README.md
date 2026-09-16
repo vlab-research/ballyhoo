@@ -102,7 +102,7 @@ page_url: https://www.pexels.com/photo/3573351/
 creator: Lukas Rodriguez
 licence: Pexels License
 licence_url: https://www.pexels.com/license/
-query: older woman phone market kenya
+query: middle aged african woman portrait smiling
 fetched: 2026-09-12
 picked: {by: A. Author, on: 2026-09-12}
 ```
@@ -126,9 +126,9 @@ The agent searches or generates **candidates**; a person picks among them, on a 
 review page (§ Review) or by naming them to `keep`; `keep` copies a pick into the art
 library with its provenance.
 
-    uv run ballyhoo stock search "older woman phone market" --provider pexels --n 40 --out candidates/ke-older
-    GOOGLE_CLOUD_PROJECT=<project> uv run ballyhoo generate "<prompt>" --provider gemini --size 1080x1080 --n 4 --out candidates/ke-older
-    uv run ballyhoo keep candidates/ke-older/candidates.yaml pexels-3573351=ke-woman-market \
+    uv run ballyhoo stock search "middle aged african woman portrait" --provider pexels --n 40 --out candidates/ea-woman
+    GOOGLE_CLOUD_PROJECT=<project> uv run ballyhoo generate "<prompt>" --provider gemini --size 1080x1080 --n 4 --out candidates/ea-woman
+    uv run ballyhoo keep candidates/ea-woman/candidates.yaml pexels-3573351=ea-woman-market \
         --to ../recruitment-creative/scenes --picked-by "<the person who picked>"
 
 A candidates directory holds:
@@ -178,16 +178,16 @@ defaults:                         # shared by every need; each can be set per ne
     templates: [photo-band/1080x1080]       # <design>/<W>x<H> in the designs directory
     copy: "Take a short survey and get KES 100 airtime."
 
-ke-older-woman:
-  need: A Kenyan woman aged 60 or more, in a rural setting, using a mobile phone.
+ea-woman:
+  need: A woman who reads as East African, middle-aged, in a photo that stops the scroll.
   search:
     pexels:                       # a query, or a list of queries
-      - older african woman mobile phone village
-      - kenyan grandmother phone
+      - middle aged african woman portrait smiling
+      - african woman grey hair portrait
   generate:
-    gemini: A Kenyan woman in her sixties outside her home, reading her phone.
+    gemini: A woman in her fifties outside her home, reading her phone.
     fal:                          # the map form carries options
-      prompt: A Kenyan woman in her sixties outside her home.
+      prompt: A woman in her fifties outside her home.
       model: fal-ai/flux-2-max    # default: the provider's model
       seed: 81                    # default: --seed, else random
 ```
@@ -230,7 +230,7 @@ thinking tokens add a little.
 runs/2026-09-14-1/         <date>-<n>; a second run that day is -2, and no run is written into again
   brief.yaml               the brief as it was run; its relative paths mean what they meant beside the original
   manifest.yaml            what ran
-  ke-older-woman/          a candidates directory (above), with stock originals in originals/
+  ea-woman/                a candidates directory (above), with stock originals in originals/
   review.html              the review page, read-only (§ Review); written by preview and by each save
   verdicts.yaml            a person's verdicts, saved from the review page; absent until someone rates
   agent-verdicts.yaml      an agent's verdicts, written by the agent; optional
@@ -247,12 +247,12 @@ finished: 2026-09-14T10:04:40Z
 ballyhoo: 3f9a…                   # digest of all of ballyhoo's code
 estimated_cost_usd: 0.33
 requests:
-- {need: ke-older-woman, provider: pexels, kind: search, query: kenyan grandmother phone, n: 2,
+- {need: ea-woman, provider: pexels, kind: search, query: african woman grey hair portrait, n: 2,
    results: 2, new: 1, already_found: 1, seconds: 1.2, estimated_usd: 0.0}
-- {need: ke-older-woman, provider: gemini, kind: generate, model: gemini-3.1-flash-image, size: 1080x1080,
+- {need: ea-woman, provider: gemini, kind: generate, model: gemini-3.1-flash-image, size: 1080x1080,
    seeds: [81, 82], prompt: "…", images: 1, refused: 1, seconds: 27.4, estimated_usd: 0.202}
 errors:
-- 'ke-older-woman/gemini generate: seed 82: no image (finish reason IMAGE_SAFETY)'
+- 'ea-woman/gemini generate: seed 82: no image (finish reason IMAGE_SAFETY)'
 ```
 
 For a search, `new` counts the results that no earlier query for the same need
@@ -286,7 +286,7 @@ A person then rates an ad, not a raw photo.
   point.
 
 ```
-runs/2026-09-14-1/ke-older-woman/
+runs/2026-09-14-1/ea-woman/
   previews/<id>_<design>_<W>x<H>.png   every render, passing or not
   checks.yaml                          what the checks found
 ```
@@ -326,7 +326,7 @@ against its need. `keep --verdicts` then keeps what they rated keep.
 
     uv run ballyhoo review runs/2026-09-14-1              # prints the page's address; --port N (default: any free port)
     uv run ballyhoo review runs/2026-09-14-1 --summary    # print the counts below and exit; --agent counts agent-verdicts.yaml
-    uv run ballyhoo keep runs/2026-09-14-1 --verdicts --need ke-older-woman --to ../recruitment-creative/scenes
+    uv run ballyhoo keep runs/2026-09-14-1 --verdicts --need ea-woman --to ../recruitment-creative/scenes
 
 The page groups candidates by need, in brief order. Each need opens with what it asks
 for, the headline its previews used, and the summary. Each candidate shows its
@@ -349,7 +349,7 @@ licence or the model and seed, and an agent's verdict when there is one.
 rated_by: A. Author
 rated_on: 2026-09-14
 needs:                            # need -> candidate id -> verdict
-  ke-older-woman:
+  ea-woman:
     pexels-3573351:
       verdict: keep               # keep, maybe or drop
       issues: [crop]              # optional, from the list below
@@ -388,12 +388,12 @@ A photo that several queries found counts once for its need and provider, and on
 each of those queries.
 
 ```
-ke-older-woman: 6 found, 1 keep (17%), 1 maybe, 3 drop, 1 unrated; issues: age 2
+ea-woman: 6 found, 1 keep (17%), 1 maybe, 3 drop, 1 unrated; issues: age 2
   pexels: 4 found, 1 keep (25%), 0 maybe, 2 drop, 1 unrated; issues: age 2
-    query 'kenyan woman phone': 3 found, 1 keep (33%), 0 maybe, 1 drop, 1 unrated; issues: age 1
-    query 'woman phone village kenya': 2 found, 0 keep (0%), 0 maybe, 2 drop, 0 unrated; issues: age 2
+    query 'mature african woman phone': 3 found, 1 keep (33%), 0 maybe, 1 drop, 1 unrated; issues: age 1
+    query 'african woman grey hair portrait': 2 found, 0 keep (0%), 0 maybe, 2 drop, 0 unrated; issues: age 2
   gemini: 2 found, 0 keep (0%), 1 maybe, 1 drop, 0 unrated
-    prompt 'A Kenyan woman in her fifties outside her home.': 2 found, 0 keep (0%), 1 maybe, 1 drop, 0 unrated
+    prompt 'A woman in her fifties outside her home.': 2 found, 0 keep (0%), 1 maybe, 1 drop, 0 unrated
 ```
 
 **`keep RUN --verdicts --need NEED --to DIR`** keeps every candidate of the need that
