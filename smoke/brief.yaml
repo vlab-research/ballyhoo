@@ -5,17 +5,29 @@
 # Stock only: photos come from stock, and image models make drawings, which
 # preview cannot place yet (docs/creative-rules.md).
 #
-# Queries follow what searching Pexels has shown:
-# - short: an age, a sex, and a place or a job; place words only match in short queries;
-# - small towns, since famous places return what tourists photograph there;
-# - no "phone", which outranks place words and returns Western studio shoots;
-# - no clothing or ethnic dress words, which return costume portraits;
-# - no negation, since Pexels matches the negated word;
-# - "middle aged", never older: no one in an ad looks older than middle age.
+# The needs are regions, not countries. A person who reads as East African serves
+# a Kenyan study and one who reads as North African or Arab a Moroccan one;
+# naming the country returns documentary and tourist work and little else.
 #
-# Four queries of eight results a need: by the third or fourth query most results
-# repeat an earlier one, and twelve searches stay far inside Pexels's 200 requests
-# an hour.
+# The queries are the regional spike's best three a need, and one new one
+# (2026-09-16; planning/phase-2-imagery.md § Spike results):
+# - "middle aged" and "mature" found all but one of that spike's 33 fits, where
+#   the age words that read as elderly found ethnographic portraits of people
+#   well past the age ceiling;
+# - an occupation with a place ("moroccan man shop owner") returns ordinary
+#   people in their own settings;
+# - negation backfires, so the unveiled need asks for short hair, which works;
+# - each need's new query goes after an arresting expression or a saturated
+#   colour, since a photo that does not stop the scroll fails whatever else it
+#   does, and the spike graded before that rule existed.
+#
+# One query carries orientation: square, the one Pexels filter worth having. It
+# returns a different set from the same words and is the shape these templates
+# want, so this run's keep rate for it can be read against the spike's for the
+# same query unfiltered.
+#
+# Four queries of eight results a need: by the fourth most results repeat an
+# earlier one, and twelve searches stay far inside Pexels's 200 requests an hour.
 
 designs: designs
 
@@ -25,51 +37,71 @@ defaults:
     templates: &band [photo-band/1080x1080]
     copy: Take a short survey and share *your views*.
 
-ke-woman:
+ea-woman:
   need: >-
-    A Kenyan woman who looks to be in her fifties, in a rural setting: a farm, a
-    village or a small-town market. She need not be holding a phone. Whether a
-    woman from a neighbouring country who looks the part will do is still open
-    with the author.
+    A woman who reads as East African, about 45 to 55, in a photo that stops the
+    scroll. Judge that first: an arresting expression or moment, one strong
+    saturated colour, close or slightly unexpected framing. A neutral smile on a
+    plain background is a drop, however well it is shot. Then § Audience of
+    docs/creative-rules.md: it has to look like a professional local ad, never a
+    documentary, ethnographic or tourist photograph, and never a foreigner's idea
+    of the place. The region is what matters, not the country: a Kenyan study is
+    served by anyone who reads as East African. She need not be holding a phone.
   search:
     pexels:
-      - middle aged woman farmer Kenya
-      - middle aged Kenyan woman
-      - mature woman Kenya village
-      - middle aged woman Nyeri
+      - middle aged african woman portrait smiling
+      - african woman grey hair portrait
+      - mature african woman phone
+      # New: after an expression and a colour rather than a pose.
+      - african woman laughing colourful portrait
 
-ma-man:
+na-man:
   need: >-
-    A Moroccan man who looks to be in his fifties, in the rural south: a village,
-    a farm, or a small town such as Tiznit or Taroudant. He need not be holding a
-    phone. Whether a man from another country who looks the part will do is
-    still open with the author.
+    A man who reads as North African or Arab, about 45 to 55, in a photo that
+    stops the scroll. Judge that first: an arresting expression or moment, one
+    strong saturated colour, close or slightly unexpected framing. A neutral
+    smile on a plain background is a drop, however well it is shot. Then
+    § Audience of docs/creative-rules.md: it has to look like a professional
+    local ad, never a documentary, ethnographic or tourist photograph, and never
+    a foreigner's idea of the place. The region is what matters, not the country:
+    a Moroccan study is served by anyone who reads as North African or Arab. He
+    need not be holding a phone.
   search:
     pexels:
-      - middle aged man Tiznit
-      - middle aged man Taroudant
-      - Moroccan village man
-      - middle aged farmer Morocco
+      # The spike ran this query square against the API; square returned a
+      # genuinely different set, so the two keep rates are comparable.
+      - query: middle aged arab man portrait
+        orientation: square
+      - moroccan man shop owner
+      - mature arab man phone cafe
+      # New: the occupation-with-a-place pattern that found the spike's best photo.
+      - mature arab man barber shop
   # French, not Arabic: the template's Hind has no Arabic glyphs, and a fallback font would pass unnoticed.
   preview:
     templates: *band
     copy: Répondez à une courte enquête et donnez *votre avis*.
 
-# Pexels has almost no unveiled Moroccan women of this age, so this need is the
-# known gap: it stays so each run shows whether that is still true, and a drawing
-# is expected to serve it.
-ma-woman:
+# The hardest need in every spike: Pexels's Arab women of this age are veiled,
+# young, or both, and its fits lean Levantine and Turkish. It stays so each run
+# shows whether that is still true, and a drawing is expected to serve it.
+na-woman:
   need: >-
-    A Moroccan woman who looks to be in her fifties, without a headscarf, in a
-    town: a street, a market, a shop or at home. She need not be holding a phone.
-    Whether a woman from another country who looks the part will do is still
-    open with the author.
+    A woman who reads as North African or Arab, about 45 to 55, without a
+    headscarf, in a photo that stops the scroll. Judge that first: an arresting
+    expression or moment, one strong saturated colour, close or slightly
+    unexpected framing. A neutral smile on a plain background is a drop, however
+    well it is shot. Then § Audience of docs/creative-rules.md: it has to look
+    like a professional local ad, never a documentary, ethnographic or tourist
+    photograph, and never a foreigner's idea of the place. The region is what
+    matters, not the country: a Moroccan study is served by anyone who reads as
+    North African or Arab. She need not be holding a phone.
   search:
     pexels:
-      - middle aged woman Tiznit
-      - middle aged Moroccan woman
-      - mature woman Agadir
-      - woman shopkeeper Morocco
+      - middle aged arab woman portrait
+      - lebanese woman portrait
+      - arab woman short hair portrait
+      # New: candid and laughing, against the studio series the spike's fits came from.
+      - arab woman laughing candid
   preview:
     templates: *band
     copy: Répondez à une courte enquête et donnez *votre avis*.
