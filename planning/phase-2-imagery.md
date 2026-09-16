@@ -307,6 +307,47 @@ These are the `PRICE` tables in the provider modules, which `ballyhoo source` es
       labels or annotations"), framing (waist-up, nothing cropped but the body) and a
       background suffix chosen by the remover.
 
+- **The regional smoke run, 2026-09-16** (`smoke/runs/2026-09-16-1`; 12 Pexels searches of 8,
+  96 candidates, free). The first run graded under § Photography's **eye-catching first**, and
+  the first with the needs written as regions. Agent verdicts, strictly graded:
+  **1 keep, 10 maybe, 85 drop.**
+
+  | Need | Query | Keep | Maybe | Drop |
+  |---|---|---|---|---|
+  | ea-woman | middle aged african woman portrait smiling | 0 | 1 | 7 |
+  | ea-woman | african woman grey hair portrait | 0 | 0 | 8 |
+  | ea-woman | mature african woman phone | 0 | 1 | 7 |
+  | ea-woman | african woman laughing colourful portrait *(new)* | 0 | 0 | 8 |
+  | na-man | middle aged arab man portrait *(`orientation: square`)* | 0 | 0 | 8 |
+  | na-man | moroccan man shop owner | 0 | 2 | 6 |
+  | na-man | mature arab man phone cafe | 0 | 0 | 8 |
+  | na-man | mature arab man barber shop *(new)* | 0 | 1 | 7 |
+  | na-woman | middle aged arab woman portrait | 0 | 0 | 8 |
+  | na-woman | lebanese woman portrait | 0 | 1 | 7 |
+  | na-woman | arab woman short hair portrait | 0 | 4 | 4 |
+  | na-woman | arab woman laughing candid *(new)* | 1 | 0 | 7 |
+
+  - **The eye-catching rule reverses the last spike's own picks.** `pexels-35495790`, which the
+    regional spike called its clearest fit for na-woman, is a drop here: a neutral expression on
+    a grey sweep is exactly the generic stock the rule bars. 16 candidates were dropped as
+    **bland** (`style`), nearly all of them the polished studio portraits that spike preferred.
+  - **Age and life pull against each other, and that is the finding.** The photos with a real
+    moment in them are of people 25 to 40 (`off-brief` 58); the people in the 45–55 band are
+    documentary elders (`age` 37) or competent studio portraits. Pexels appears to hold very
+    few photographs that are both middle-aged and alive.
+  - **`orientation: square` returned a genuinely different set and not a better one.** All 8
+    results were new, and all 8 were dropped: dark, dramatic studio portraiture of men past the
+    ceiling, 7 flagged `age`. The same query unfiltered gave that spike 4 fits under the old
+    grading. The filter works; it does not fix the catalogue.
+  - **No duplicates at all**, 96 of 96 new, where earlier runs repeated 30–50% by the fourth
+    query. Four queries spread across different words, rather than four on one theme, is what
+    changed.
+  - **The best query in the run is `arab woman short hair portrait`** (4 maybe of 8): the
+    positive proxy for "unveiled" also happens to find women with some style about them. The
+    single keep came from `arab woman laughing candid`, the new query aimed at a moment.
+  - Previews: 96 rendered, 16 pass, 80 fail, every failure contrast under the smoke template's
+    deliberately translucent 25% band.
+
 ## Provenance sidecar
 
 `<image>.provenance.yaml` beside the image. Common fields: `source` and `sha256`.

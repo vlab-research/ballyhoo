@@ -103,13 +103,14 @@ creator: Lukas Rodriguez
 licence: Pexels License
 licence_url: https://www.pexels.com/license/
 query: middle aged african woman portrait smiling
+search_options: {orientation: square}   # only when the search set any
 fetched: 2026-09-12
 picked: {by: A. Author, on: 2026-09-12}
 ```
 
 | `source` | Required besides `sha256` |
 |---|---|
-| `stock` | `provider`, `id`, `page_url`, `creator`, `licence`, `licence_url`, `query`, `fetched`, `picked` (`creator_url` optional). A photo downloaded before provenance existed is marked `backfilled: <date>` and may omit `query` |
+| `stock` | `provider`, `id`, `page_url`, `creator`, `licence`, `licence_url`, `query`, `fetched`, `picked` (`creator_url` and `search_options` optional). A photo downloaded before provenance existed is marked `backfilled: <date>` and may omit `query` |
 | `generated` | `provider`, `model`, `prompt`, `seed`, `generated`, `picked` |
 | `made` | `by` (who made it, and the source document), `rights` (on what terms we use it) |
 
@@ -147,7 +148,7 @@ images, so the same image is never listed twice and numbers never change.
 
 | `--provider` | Kind | Credentials | Notes |
 |---|---|---|---|
-| `pexels` | stock | `PEXELS_API_KEY` | |
+| `pexels` | stock | `PEXELS_API_KEY` | `--orientation landscape\|portrait\|square`; `square` returns a different set and matches a 1080×1080 template |
 | `openverse` | stock | none | CC0 and public domain only, which in practice means archive images |
 | `gemini` | generate | Google application default credentials, and `GOOGLE_CLOUD_PROJECT` naming who pays | Vertex; `--image-size 1K`/`2K`/`4K`; `--size` sets the aspect ratio, which must be one Gemini supports |
 | `fal` | generate | `FAL_KEY` | FLUX.2 [pro] at exactly `--size` |
@@ -183,7 +184,8 @@ ea-woman:
   search:
     pexels:                       # a query, or a list of queries
       - middle aged african woman portrait smiling
-      - african woman grey hair portrait
+      - query: african woman grey hair portrait
+        orientation: square       # the provider's own search options, per query
   generate:
     gemini: A woman in her fifties outside her home, reading her phone.
     fal:                          # the map form carries options
@@ -199,6 +201,10 @@ ea-woman:
 - A setting in a need replaces the default whole: a need's `preview` names its `templates`
   as well as its `copy`, even to change only the headline (a YAML anchor saves repeating
   them, as `smoke/brief.yaml` does).
+- Search options: a query is text, or a map with `query` and the provider's own search
+  options. Pexels takes `orientation` (`landscape`, `portrait` or `square`); Openverse takes
+  none. An option a provider does not accept is an error naming it and listing what it does
+  take, and so is a value it cannot use, both before anything is sent.
 - Generation options: `prompt` (required), `model`, `seed`, and for Gemini
   `image_size` (`1K`, `2K` or `4K`; default `2K`).
 - Paths resolve relative to the brief. Every mistake (unknown providers or keys, a
@@ -248,7 +254,7 @@ ballyhoo: 3f9a…                   # digest of all of ballyhoo's code
 estimated_cost_usd: 0.33
 requests:
 - {need: ea-woman, provider: pexels, kind: search, query: african woman grey hair portrait, n: 2,
-   results: 2, new: 1, already_found: 1, seconds: 1.2, estimated_usd: 0.0}
+   orientation: square, results: 2, new: 1, already_found: 1, seconds: 1.2, estimated_usd: 0.0}
 - {need: ea-woman, provider: gemini, kind: generate, model: gemini-3.1-flash-image, size: 1080x1080,
    seeds: [81, 82], prompt: "…", images: 1, refused: 1, seconds: 27.4, estimated_usd: 0.202}
 errors:
@@ -409,13 +415,18 @@ overwrites a file.
 needs, four queries of eight results each, stock only and free. Run it after changing
 sourcing, preview or review, and use its summary to tune queries.
 
+Its needs are regions, not countries — `ea-woman`, `na-man` and `na-woman` — because that
+is what a photo has to read as (`docs/creative-rules.md` § Audience). One query sets
+`orientation: square`, so a run exercises a provider search option against the live API.
+
     uv run --env-file .env ballyhoo source smoke/brief.yaml     # into smoke/runs/<date>-<n>/; needs PEXELS_API_KEY
     uv run ballyhoo preview smoke/runs/<run>                    # render and check every candidate
     uv run ballyhoo review smoke/runs/<run>                     # rate on the page
     uv run ballyhoo review smoke/runs/<run> --summary           # keep rate per need and query
 
-- `ma-woman`, an unveiled Moroccan woman in her fifties, is the known gap: Pexels has
-  almost none. It stays in the brief so each run shows whether that is still true.
+- `na-woman`, an unveiled middle-aged woman who reads North African or Arab, is the known
+  gap: Pexels has almost none. It stays in the brief so each run shows whether that is
+  still true.
 - pytest never runs it. `tests/integration/test_smoke_brief.py` checks, without a network,
   that the brief parses, its templates exist, its requests build, and it asks for no one
   older than middle age.

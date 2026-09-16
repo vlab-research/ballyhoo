@@ -523,6 +523,37 @@ one new query worth trying, at n=8. One need's best query also sets `orientation
 the option is exercised live and this run's keep rate for it can be read against the spike's
 unfiltered result for the same query.
 
+**Built as planned (2026-09-16), with these differences:**
+
+- **`SEARCH_OPTIONS`, not `OPTIONS`.** A module can both search and generate (the test provider
+  does), so the two lists cannot share a name.
+- **A query is a string or a map** with `query` and the options; an unknown key names the query
+  by its position in the list (`ke/search/pexels query 2: …`) and lists what that provider takes.
+  An option's *value* is checked by the provider's own request builder, which raises ValueError,
+  so a bad one is reported by `request_problems` beside a missing credential.
+- **`candidates.with_search_options`** puts the options in the record as `search_options`;
+  `sourcing.search` applies it to what a search returns, so every provider gets it for free.
+- **The need texts were written twice.** They first spelled out what makes a photo
+  eye-catching; the author then settled that it is a judgement, not a checklist, so each need
+  now says the rater decides by looking and names the two reference photos in the art library.
+- **The run's copy of `brief.yaml` was updated with the corrected need prose**, so the author
+  rates against the right instruction. The queries in it are untouched, so it still records what
+  was searched.
+
+**What ran**, into `smoke/runs/2026-09-16-1` (gitignored):
+
+1. `source --plan`: 12 requests, $0.00, with `orientation: square` printed under its query.
+2. `source`: 12 searches, 0 errors, 96 candidates, **no duplicates at all** (96 of 96 new).
+   Originals 1963×2919 to 7728×5152; the 8 square results are 2048×2048 and up.
+3. `preview`: 96 previews, 16 pass, 80 fail, 0 errors. Every failure is contrast under the
+   translucent band, as in the first live run.
+4. An agent pre-rated all 96 into `agent-verdicts.yaml` and ran `review --summary --agent`.
+   Keep rates per query are in `planning/phase-2-imagery.md` § Spike results.
+
+**Nothing broke on real data.** The option reached the API, the manifest recorded it beside the
+query, and the 8 candidates it found carry `search_options: {orientation: square}` in their
+provenance while the other 88 carry none.
+
 ### 6. Later, not planned in detail
 
 - `ballyhoo runs summary runs/*`: keep rate and issues by need, provider, model and prompt.
