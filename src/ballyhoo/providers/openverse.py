@@ -11,6 +11,7 @@ from . import Request
 
 NAME = "openverse"
 MAX_PAGE_SIZE = 20  # the most an anonymous request may ask for
+SEARCH_OPTIONS = ()  # so an option named for Openverse in a brief is an error, never ignored
 LICENCES = {"cc0": "CC0", "pdm": "Public Domain Mark"}
 PRICE = {"checked": "2026-09-14", "source": "https://docs.openverse.org/api/reference/authentication_and_throttling.html",
          "per_request": 0.0}

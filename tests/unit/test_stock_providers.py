@@ -37,6 +37,21 @@ def test_pexels_sends_the_key_as_the_authorization_header_and_caps_the_page_size
     assert request.params == {"query": "older woman phone", "page": 2, "per_page": 80}
 
 
+def test_pexels_takes_an_orientation_and_refuses_a_shape_it_does_not_have():
+    request = pexels.search_request("middle aged arab man portrait", 1, 8, {"PEXELS_API_KEY": "k"},
+                                    orientation="square")
+    assert request.params == {"query": "middle aged arab man portrait", "page": 1, "per_page": 8,
+                              "orientation": "square"}
+    assert "orientation" not in pexels.search_request("x", 1, 8, {"PEXELS_API_KEY": "k"}).params
+    with pytest.raises(ValueError, match="orientation 'sideways' must be one of landscape, portrait, square"):
+        pexels.search_request("x", 1, 8, {"PEXELS_API_KEY": "k"}, orientation="sideways")
+
+
+def test_orientation_is_the_only_search_option_offered_and_openverse_offers_none():
+    assert pexels.SEARCH_OPTIONS == ("orientation",)
+    assert openverse.SEARCH_OPTIONS == ()
+
+
 def test_a_missing_key_names_the_variable_rather_than_skipping_the_provider():
     with pytest.raises(MissingCredential, match="PEXELS_API_KEY is not set in the environment"):
         pexels.search_request("x", 1, 10, {"PEXELS_API_KEY": " "})

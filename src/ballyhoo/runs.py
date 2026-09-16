@@ -99,7 +99,7 @@ def run_job(job, provider, directory, http, env, today, sleep, known):
     start = time.monotonic()
     try:
         if job.kind == "search":
-            results = sourcing.search(http, provider, job.text, job.n, env=env)
+            results = sourcing.search(http, provider, job.text, job.n, env=env, **job.options)
             new = [c for c in results if c.id not in known]
             record.update(results=len(results), new=len(new), already_found=len(results) - len(new))
             found, problems = sourcing.download_originals(http, directory, new)

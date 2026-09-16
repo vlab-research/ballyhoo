@@ -9,8 +9,12 @@ checked and where). A stock provider has search_request, parse_search and
 search_price. A generator has generate_request, image_price (None when there is
 no published price), and either parse_image (the reply holds the image) or
 parse_submission, poll_request, parse_status and parse_result (it queues). A
-generator that needs a token first has token_request and parse_token; one that
-takes options beyond the model and seed lists them in OPTIONS.
+generator that needs a token first has token_request and parse_token.
+
+A provider that takes options beyond the query, or beyond the model and seed,
+lists them: SEARCH_OPTIONS for a search, OPTIONS for a generation. They arrive
+as keyword arguments to the request builder, which raises ValueError on a value
+it cannot use, so a brief is stopped by a bad option before anything is sent.
 """
 from dataclasses import dataclass, field
 

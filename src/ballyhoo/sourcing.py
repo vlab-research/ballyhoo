@@ -104,17 +104,21 @@ def generate(http, provider, prompt, n, seed, width, height, directory, env=None
     return found, refused, errors
 
 
-def search(http, provider, query, n, env=None):
-    """Up to `n` candidates, paging until there are enough or the provider has no more."""
+def search(http, provider, query, n, env=None, **options):
+    """Up to `n` candidates, paging until there are enough or the provider has no more.
+
+    `options` are the provider's own search options, which its record keeps.
+    """
     env = os.environ if env is None else env
     found, page = [], 1
     while len(found) < n:
-        batch, more = provider.parse_search(send(http, provider.search_request(query, page, n, env)).json(), query)
+        request = provider.search_request(query, page, n, env, **options)
+        batch, more = provider.parse_search(send(http, request).json(), query)
         found = cands.merge(found, batch)
         if not (more and batch):
             break
         page += 1
-    return found[:n]
+    return [cands.with_search_options(c, options) for c in found[:n]]
 
 
 def download_originals(http, directory, found):

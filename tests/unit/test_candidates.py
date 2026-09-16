@@ -3,7 +3,8 @@ import datetime
 import pytest
 
 from ballyhoo.candidates import (Candidate, cell_origin, displayed_size, dump, extension, fit, kept_record, load,
-                                 merge, parse_picks, plan_keep, sheet_size, sheets, with_original)
+                                 merge, parse_picks, plan_keep, sheet_size, sheets, with_original,
+                                 with_search_options)
 from ballyhoo.provenance import problems
 
 TODAY = datetime.date(2026, 9, 12)
@@ -135,6 +136,15 @@ def test_a_downloaded_original_is_what_the_candidate_names_and_its_record_keeps_
         "originals/pexels-1.jpg", "originals/pexels-1.jpg", 2000, 3000)
     assert local.provenance == {**stock(1).provenance, "download_url": "https://images.example/1.jpeg"}
     assert kept_record(local, SHA, "A. Author", TODAY)[1] == []
+
+
+def test_a_candidate_records_the_search_options_that_found_it_beside_its_query():
+    plain = stock(1)
+    assert with_search_options(plain, {}) is plain
+    square = with_search_options(plain, {"orientation": "square"})
+    assert square.provenance["search_options"] == {"orientation": "square"}
+    assert square.query == "older woman phone" and square.id == plain.id
+    assert kept_record(square, SHA, "A. Author", TODAY)[1] == []
 
 
 def test_a_quarter_turn_in_exif_swaps_the_displayed_width_and_height():

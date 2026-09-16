@@ -76,6 +76,16 @@ def with_original(candidate, ext, width, height):
                    provenance={**candidate.provenance, "download_url": candidate.full})
 
 
+def with_search_options(candidate, options):
+    """A candidate found by a search that set provider options: the record keeps them beside the query.
+
+    A photo can then be traced to the exact search that found it, which the query alone does not say.
+    """
+    if not options:
+        return candidate
+    return replace(candidate, provenance={**candidate.provenance, "search_options": dict(options)})
+
+
 def displayed_size(width, height, orientation):
     """An image's size as shown, after its EXIF orientation."""
     return (height, width) if orientation in ROTATED else (width, height)

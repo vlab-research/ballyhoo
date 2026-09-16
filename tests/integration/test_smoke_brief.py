@@ -27,5 +27,5 @@ def test_the_smoke_brief_only_searches_pexels_and_every_request_builds_for_free(
 
 def test_the_smoke_brief_asks_for_no_one_older_than_middle_age():
     needs, _, _ = runs.load(SMOKE, cli.PROVIDERS)
-    texts = [n.need for n in needs] + [q for n in needs for queries in n.search.values() for q in queries]
+    texts = [n.need for n in needs] + [q.text for n in needs for queries in n.search.values() for q in queries]
     assert [t for t in texts if TOO_OLD.search(t)] == []

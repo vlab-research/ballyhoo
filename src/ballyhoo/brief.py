@@ -20,15 +20,22 @@ SETTINGS = ("n", "size", "prompt_suffix", "preview")
 NEED_KEYS = ("need", "search", "generate", *SETTINGS)
 PREVIEW_KEYS = ("templates", "copy")
 GENERATE_KEYS = ("prompt", "model", "seed")
+SEARCH_KEYS = ("query",)
 DEFAULT_N = 2
 UNSENT_TOKEN = "unsent"  # stands in for a provider token when a request is built only to check it
+
+
+@dataclass(frozen=True)
+class Query:
+    text: str
+    options: dict = field(default_factory=dict)  # the provider's own search options, such as Pexels's orientation
 
 
 @dataclass(frozen=True)
 class Need:
     name: str
     need: str             # what the image must show: what a person rates candidates against
-    search: dict          # provider -> tuple of queries
+    search: dict          # provider -> tuple of Query
     generate: dict        # provider -> {"prompt", "model", "seed", "options"}; model and seed may be None
     n: int
     size: tuple | None    # (width, height) to generate; None when the need only searches
@@ -133,6 +140,23 @@ def _provider_problem(name, providers, method, verb):
     return None
 
 
+def _query(where, raw, provider, options):
+    """One search: a query, or a map with the query and the provider's own search options."""
+    if not isinstance(raw, dict):
+        if _blank(raw):
+            return None, [f"{where}: expected a query, or a map with query and {provider}'s search options"]
+        return Query(raw.strip()), []
+    accepted = SEARCH_KEYS + tuple(options)
+    unknown = [k for k in raw if k not in accepted]
+    problems = [f"{where}: unknown option{'s' if len(unknown) > 1 else ''} {', '.join(repr(k) for k in unknown)}; "
+                f"{provider} searches take {', '.join(accepted)}"] if unknown else []
+    if _blank(raw.get("query")):
+        problems.append(f"{where}: query is required")
+    if problems:
+        return None, problems
+    return Query(raw["query"].strip(), {k: raw[k] for k in options if k in raw}), []
+
+
 def _search(where, raw, providers):
     if not isinstance(raw, dict) or not raw:
         return {}, [f"{where}: expected a map of provider -> query, or list of queries"]
@@ -142,11 +166,20 @@ def _search(where, raw, providers):
         problem = _provider_problem(provider, providers, "search_request", "search")
         if problem:
             errors.append(f"{label}: {problem}")
-        queries = [queries] if isinstance(queries, str) else queries
-        if not isinstance(queries, list) or not queries or any(_blank(q) for q in queries):
+        queries = [queries] if isinstance(queries, (str, dict)) else queries
+        if not isinstance(queries, list) or not queries:
             errors.append(f"{label}: expected a query, or a list of queries")
-        elif not problem:
-            found[provider] = tuple(q.strip() for q in queries)
+            continue
+        options = getattr(providers.get(provider), "SEARCH_OPTIONS", ())
+        parsed, problems = [], []
+        for i, raw_query in enumerate(queries, 1):
+            query, more = _query(f"{label} query {i}", raw_query, provider, options)
+            problems += more
+            if query:
+                parsed.append(query)
+        errors += problems
+        if not problem and not problems:
+            found[provider] = tuple(parsed)
     return found, errors
 
 
@@ -247,7 +280,7 @@ def expand(needs, providers, seed):
     jobs = []
     for need in needs:
         for provider, queries in need.search.items():
-            jobs += [Job(need.name, provider, "search", q, need.n) for q in queries]
+            jobs += [Job(need.name, provider, "search", q.text, need.n, options=dict(q.options)) for q in queries]
         for provider, spec in need.generate.items():
             prompt = f"{spec['prompt']} {need.prompt_suffix}" if need.prompt_suffix else spec["prompt"]
             jobs.append(Job(need.name, provider, "generate", prompt, need.n, *need.size,
@@ -299,7 +332,7 @@ def request_problems(jobs, providers, env):
         provider = providers[job.provider]
         try:
             if job.kind == "search":
-                provider.search_request(job.text, 1, job.n, env)
+                provider.search_request(job.text, 1, job.n, env, **job.options)
             else:
                 if hasattr(provider, "token_request"):
                     provider.token_request(env)
@@ -319,7 +352,8 @@ def request_problems(jobs, providers, env):
 def describe(job):
     """A job as data: what --plan prints and the manifest records."""
     if job.kind == "search":
-        return {"need": job.need, "provider": job.provider, "kind": job.kind, "query": job.text, "n": job.n}
+        return {"need": job.need, "provider": job.provider, "kind": job.kind, "query": job.text, "n": job.n,
+                **job.options}
     return {"need": job.need, "provider": job.provider, "kind": job.kind, "model": job.model,
             "size": f"{job.width}x{job.height}", **job.options, "seeds": job.seeds, "prompt": job.text}
 

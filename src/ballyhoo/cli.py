@@ -43,6 +43,7 @@ def main(argv=None):
     q.add_argument("query")
     q.add_argument("--provider", required=True, choices=sorted(STOCK))
     q.add_argument("--n", type=int, default=20, help="how many results (default 20)")
+    q.add_argument("--orientation", choices=pexels.ORIENTATIONS, help="pexels only: the shape of the results")
     q.add_argument("--out", type=Path, required=True, help="the candidates directory; results are appended")
     q.set_defaults(run=run_stock_search)
 
@@ -130,9 +131,16 @@ def run_provenance_made(ap, args):
 
 
 def run_stock_search(ap, args):
+    provider = STOCK[args.provider]
+    options = {}
+    if args.orientation:
+        if "orientation" not in getattr(provider, "SEARCH_OPTIONS", ()):
+            takes = sorted(n for n, p in STOCK.items() if "orientation" in getattr(p, "SEARCH_OPTIONS", ()))
+            ap.error(f"--orientation applies to {', '.join(takes)}, not {args.provider}")
+        options["orientation"] = args.orientation
     with sourcing.client() as http:
         try:
-            found = sourcing.search(http, STOCK[args.provider], args.query, args.n)
+            found = sourcing.search(http, provider, args.query, args.n, **options)
         except MissingCredential as e:
             print(f"FAIL  {e}")
             return 1

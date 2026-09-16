@@ -31,12 +31,14 @@ class FakePexels:
 
     def __init__(self):
         self.searches = []
+        self.orientations = []
 
     def __call__(self, request):
         if request.url.host == "api.pexels.com":
             assert request.headers["Authorization"] == "test-key"
             page = int(request.url.params["page"])
             self.searches.append((request.url.params["query"], page))
+            self.orientations.append(request.url.params.get("orientation"))
             ids = [i for i in range(1, 6)][(page - 1) * 2:page * 2]
             return httpx.Response(200, json={"photos": [photo(i) for i in ids], "next_page": "more" if page < 3 else None})
         return httpx.Response(200, content=jpeg((40 * int(request.url.path.split("/")[1]), 90, 90)))
@@ -71,6 +73,16 @@ def test_a_search_that_finds_nothing_still_writes_an_empty_candidates_file(tmp_p
     merged, sheets = run_search(tmp_path, nothing, "nobody", 5)
     assert merged == [] and sheets == []
     assert yaml.safe_load((tmp_path / "cands" / "candidates.yaml").read_text()) == {"candidates": []}
+
+
+def test_a_search_sends_the_providers_options_and_every_record_keeps_them(tmp_path):
+    fake = FakePexels()
+    with sourcing.client(transport=httpx.MockTransport(fake)) as http:
+        found = sourcing.search(http, pexels, "arab man portrait", 2, env={"PEXELS_API_KEY": "test-key"},
+                                orientation="square")
+    assert fake.orientations == ["square"]
+    assert [c.provenance["search_options"] for c in found] == [{"orientation": "square"}] * 2
+    assert "search_options" not in run_search(tmp_path, FakePexels(), "arab man portrait", 2)[0][0].provenance
 
 
 def test_a_second_search_into_the_same_directory_keeps_the_numbers(tmp_path):

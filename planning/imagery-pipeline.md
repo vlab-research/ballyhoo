@@ -486,7 +486,44 @@ Per need: ke-woman 0 keep and 4 maybe of 28; ma-man 1 keep (4%, `pexels-12573207
    the keep rate per query in `planning/phase-2-imagery.md` § Spike results, and adjust the queries.
 3. Decide how photo templates place a portrait photo (above).
 
-### 5. Later, not planned in detail
+### 5. Provider search options, and a smoke brief written around regions
+
+The regional spike (2026-09-16, recorded in `planning/phase-2-imagery.md` § Spike results)
+found 33 fits where the country-level spikes found almost none, and it asked for one tool
+change: Pexels's `orientation`.
+
+**Search options, generally.** A search takes provider options the way a generation already
+does, so nothing about this is special to Pexels:
+
+- a stock provider lists what it accepts in `SEARCH_OPTIONS`, as a generator lists `OPTIONS`;
+- in a brief, a query is a string or a map with `query` and those options, per query;
+- an option the provider does not accept is an error that names it and lists what that
+  provider takes, reported with the brief's other problems, before anything is sent;
+- an option's *value* is checked by the provider's own request builder, so a bad one is
+  reported by `request_problems` alongside a missing credential;
+- Openverse declares no options, so an option named for it is that same error rather than a
+  silently ignored key;
+- `ballyhoo stock search` gains `--orientation`, refused for a provider that does not take it;
+- the manifest records the options with the query, and each candidate's provenance keeps them
+  as `search_options`, so a photo can be traced to the exact search that found it.
+
+**Only `orientation`, and deliberately not `size` or `color`.** The spike ran all three
+against the API. `size=large` only reorders toward the biggest files: every result was
+already 3000 px or more, an ad is 1080 px, and `source` downloads `src.original` whatever
+`size` says, so it changes nothing that matters. `color=orange` actively selects the look
+§ Audience bars — it returned keffiyehs in dusty alleys and earth-toned elders, because a
+colour filter selects the palette documentary photography already has. `orientation=square`
+earns its place: it returns a genuinely different set (8000 matches against 5061 for the same
+query) and it is the shape the 1080×1080 templates want, so it removes a crop decision.
+Curated and featured collections are seasonal moodboards and cannot serve a demographic need.
+
+**The smoke brief is rewritten around regions**, replacing `ke-woman`, `ma-man` and
+`ma-woman`: `ea-woman`, `na-man` and `na-woman`, each with the spike's best three queries and
+one new query worth trying, at n=8. One need's best query also sets `orientation: square`, so
+the option is exercised live and this run's keep rate for it can be read against the spike's
+unfiltered result for the same query.
+
+### 6. Later, not planned in detail
 
 - `ballyhoo runs summary runs/*`: keep rate and issues by need, provider, model and prompt.
 - `ballyhoo doctor`: one cheap call per provider with credentials, to catch expired keys and

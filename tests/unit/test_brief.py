@@ -124,6 +124,42 @@ ma-man:
     ]
 
 
+def test_a_query_can_carry_its_providers_search_options_and_the_job_and_the_plan_record_them():
+    jobs = jobs_of("ke:\n  need: x\n  search:\n    pexels:\n"
+                   "      - middle aged arab man portrait\n"
+                   "      - {query: moroccan man shop owner, orientation: square}\n")
+    assert jobs == [Job("ke", "pexels", "search", "middle aged arab man portrait", 2),
+                    Job("ke", "pexels", "search", "moroccan man shop owner", 2, options={"orientation": "square"})]
+    assert brief.describe(jobs[1]) == {"need": "ke", "provider": "pexels", "kind": "search", "n": 2,
+                                       "query": "moroccan man shop owner", "orientation": "square"}
+
+
+def test_an_option_a_provider_does_not_take_names_it_and_lists_the_ones_it_does():
+    _, errors = parse("""
+ke:
+  need: x
+  search:
+    pexels:
+      - {query: a, colour: warm, size: large}
+      - {orientation: square}
+      - ''
+    openverse:
+      - {query: b, orientation: square}
+""")
+    assert errors == [
+        "ke/search/pexels query 1: unknown options 'colour', 'size'; pexels searches take query, orientation",
+        "ke/search/pexels query 2: query is required",
+        "ke/search/pexels query 3: expected a query, or a map with query and pexels's search options",
+        "ke/search/openverse query 1: unknown option 'orientation'; openverse searches take query",
+    ]
+
+
+def test_an_option_value_the_provider_cannot_use_stops_the_run_before_anything_is_sent():
+    jobs = jobs_of("ke:\n  need: x\n  search: {pexels: {query: a, orientation: sideways}}\n")
+    assert brief.request_problems(jobs, PROVIDERS, {"PEXELS_API_KEY": "k"}) == [
+        "ke/pexels: orientation 'sideways' must be one of landscape, portrait, square"]
+
+
 def test_generating_needs_a_size_and_queries_and_prompts_must_be_text():
     _, errors = parse("ke:\n  need: x\n  generate: {gemini: A woman.}\n  search: {pexels: []}\n")
     assert errors == ["ke/search/pexels: expected a query, or a list of queries",
