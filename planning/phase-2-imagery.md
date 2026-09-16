@@ -307,6 +307,27 @@ These are the `PRICE` tables in the provider modules, which `ballyhoo source` es
       labels or annotations"), framing (waist-up, nothing cropped but the body) and a
       background suffix chosen by the remover.
 
+- **Eye-catching, 2026-09-16** (42 Pexels searches, 454 photos, free), the first spike graded
+  under § Photography's **eye-catching first**. **5 fits**: 3 East African women (2 people),
+  2 Arab men, 0 unveiled North African women.
+  - **Search for the moment, not the person.** `laughing` produced every fit, with a colour
+    named as a surface ("colorful background", "yellow wall", "studio vivid").
+    `shouting`, `surprised` and `pointing` return anger, mugging and protest placards;
+    `dancing` returns festival documentary; `editorial fashion portrait` returns black and white.
+  - **Eye-catching words and age words index nearly disjoint pools.** The most eye-catching
+    query in the spike scored zero fits: every subject read 18–30. Three of the four East
+    African fits are one woman from one shoot.
+  - **Pexels' `color` parameter is not worth adding:** it re-ranks a query's own results
+    (13 of 15 duplicates) and still returns black-and-white photos. The colour has to be in
+    the words.
+  - **Judging is a judgement, not a scoring.** Told to score the four attributes I had written
+    down, the agent called three photos fits that were not: a pleasant smiling profile, a man
+    standing on a flat green ground, and a real laugh made brochure-like by a prop flower and
+    soft light. Told instead to look and decide, it corrected all three. That is why
+    `docs/creative-rules.md` says eye-catching is not a checklist.
+  - **Both of the author's own picks hold more than one person**, and the strongest single
+    result is a woman reacting to someone outside the frame. "A middle-aged person, alone,
+    facing camera" may be the wrong brief for any catalogue.
 - **The regional smoke run, 2026-09-16** (`smoke/runs/2026-09-16-1`; 12 Pexels searches of 8,
   96 candidates, free). The first run graded under § Photography's **eye-catching first**, and
   the first with the needs written as regions. Agent verdicts, strictly graded:
