@@ -17,9 +17,9 @@
 # - an occupation with a place ("moroccan man shop owner") returns ordinary
 #   people in their own settings;
 # - negation backfires, so the unveiled need asks for short hair, which works;
-# - each need's new query goes after an arresting expression or a saturated
-#   colour, since a photo that does not stop the scroll fails whatever else it
-#   does, and the spike graded before that rule existed.
+# - each need's new query asks for more life than a posed portrait has, since a
+#   photo that does not stop the scroll fails whatever else it does, and the
+#   spike graded before that rule existed.
 #
 # One query carries orientation: square, the one Pexels filter worth having. It
 # returns a different set from the same words and is the shape these templates
@@ -39,14 +39,16 @@ defaults:
 
 ea-woman:
   need: >-
-    A woman who reads as East African, about 45 to 55, in a photo that stops the
-    scroll. Judge that first: an arresting expression or moment, one strong
-    saturated colour, close or slightly unexpected framing. A neutral smile on a
-    plain background is a drop, however well it is shot. Then § Audience of
-    docs/creative-rules.md: it has to look like a professional local ad, never a
-    documentary, ethnographic or tourist photograph, and never a foreigner's idea
-    of the place. The region is what matters, not the country: a Kenyan study is
-    served by anyone who reads as East African. She need not be holding a phone.
+    A woman who reads as East African, about 45 to 55. Judge first whether the
+    photo stops the scroll. That is yours to judge by looking, not a list to
+    score: the author's own picks are the reference, so look at
+    scenes/kids-peeking.png and scenes/father-toddler-blanket.png in the art
+    library before rating. Competently shot but bland is a drop. Then § Audience
+    of docs/creative-rules.md: it has to look like a professional local ad, never
+    a documentary, ethnographic or tourist photograph, and never a foreigner's
+    idea of the place. The region is what matters, not the country: a Kenyan
+    study is served by anyone who reads as East African. She need not be holding
+    a phone.
   search:
     pexels:
       - middle aged african woman portrait smiling
@@ -57,15 +59,16 @@ ea-woman:
 
 na-man:
   need: >-
-    A man who reads as North African or Arab, about 45 to 55, in a photo that
-    stops the scroll. Judge that first: an arresting expression or moment, one
-    strong saturated colour, close or slightly unexpected framing. A neutral
-    smile on a plain background is a drop, however well it is shot. Then
-    § Audience of docs/creative-rules.md: it has to look like a professional
-    local ad, never a documentary, ethnographic or tourist photograph, and never
-    a foreigner's idea of the place. The region is what matters, not the country:
-    a Moroccan study is served by anyone who reads as North African or Arab. He
-    need not be holding a phone.
+    A man who reads as North African or Arab, about 45 to 55. Judge first whether
+    the photo stops the scroll. That is yours to judge by looking, not a list to
+    score: the author's own picks are the reference, so look at
+    scenes/kids-peeking.png and scenes/father-toddler-blanket.png in the art
+    library before rating. Competently shot but bland is a drop. Then § Audience
+    of docs/creative-rules.md: it has to look like a professional local ad, never
+    a documentary, ethnographic or tourist photograph, and never a foreigner's
+    idea of the place. The region is what matters, not the country: a Moroccan
+    study is served by anyone who reads as North African or Arab. He need not be
+    holding a phone.
   search:
     pexels:
       # The spike ran this query square against the API; square returned a
@@ -87,14 +90,16 @@ na-man:
 na-woman:
   need: >-
     A woman who reads as North African or Arab, about 45 to 55, without a
-    headscarf, in a photo that stops the scroll. Judge that first: an arresting
-    expression or moment, one strong saturated colour, close or slightly
-    unexpected framing. A neutral smile on a plain background is a drop, however
-    well it is shot. Then § Audience of docs/creative-rules.md: it has to look
-    like a professional local ad, never a documentary, ethnographic or tourist
-    photograph, and never a foreigner's idea of the place. The region is what
-    matters, not the country: a Moroccan study is served by anyone who reads as
-    North African or Arab. She need not be holding a phone.
+    headscarf. Judge first whether the photo stops the scroll. That is yours to
+    judge by looking, not a list to score: the author's own picks are the
+    reference, so look at scenes/kids-peeking.png and
+    scenes/father-toddler-blanket.png in the art library before rating.
+    Competently shot but bland is a drop. Then § Audience of
+    docs/creative-rules.md: it has to look like a professional local ad, never a
+    documentary, ethnographic or tourist photograph, and never a foreigner's idea
+    of the place. The region is what matters, not the country: a Moroccan study
+    is served by anyone who reads as North African or Arab. She need not be
+    holding a phone.
   search:
     pexels:
       - middle aged arab woman portrait
