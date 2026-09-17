@@ -2,24 +2,31 @@
 
 Pure. The shell loads the YAML, finds which templates exist, and passes in the
 provider registry and the environment. This module validates the brief, expands
-it into source jobs, estimates their cost, checks that every request can be
-built before any is sent, and names the run.
+it into source jobs (assembling a drawing's prompt from its style), estimates
+their cost, checks that every request can be built before any is sent, and names
+the run.
+
+A generation that names a style is a drawing: its prompt is assembled rather
+than written out, and it is cut out of its ground, so the ground the remover
+needs is part of the prompt.
 """
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .cutout import BACKGROUND
 from .providers import MissingCredential
 
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 SIZE = re.compile(r"^([1-9]\d*)x([1-9]\d*)$")
 TEMPLATE = re.compile(r"^([^/]+)/([1-9]\d*)x([1-9]\d*)$")
 DEFAULT_DESIGNS = "designs"
-RESERVED = ("designs", "defaults")
+RESERVED = ("designs", "defaults", "styles")
 SETTINGS = ("n", "size", "prompt_suffix", "preview")
 NEED_KEYS = ("need", "search", "generate", *SETTINGS)
 PREVIEW_KEYS = ("templates", "copy")
-GENERATE_KEYS = ("prompt", "model", "seed")
+STYLE_KEYS = ("style", "guards", "framing")
+GENERATE_KEYS = ("prompt", "style", "subject", "model", "seed")
 SEARCH_KEYS = ("query",)
 DEFAULT_N = 2
 UNSENT_TOKEN = "unsent"  # stands in for a provider token when a request is built only to check it
@@ -29,6 +36,15 @@ UNSENT_TOKEN = "unsent"  # stands in for a provider token when a request is buil
 class Query:
     text: str
     options: dict = field(default_factory=dict)  # the provider's own search options, such as Pexels's orientation
+
+
+@dataclass(frozen=True)
+class Style:
+    """How a drawing is drawn: the words that stay the same whoever the subject is."""
+    name: str
+    style: str             # the style itself, in the author's words
+    guards: str | None     # what this style must not draw, such as a technical drawing's dimension lines
+    framing: str | None    # how the figure sits in the frame
 
 
 @dataclass(frozen=True)
@@ -56,10 +72,16 @@ class Job:
     model: str | None = None
     seed: int | None = None  # the first seed: a generation's images use seed .. seed + n - 1
     options: dict = field(default_factory=dict)
+    style: str | None = None  # the style a drawing is in; None when the prompt was written out
 
     @property
     def seeds(self):
         return list(range(self.seed, self.seed + self.n)) if self.kind == "generate" else []
+
+    @property
+    def drawing(self):
+        """A generation in a style is a drawing, and a drawing is cut out of its ground."""
+        return self.style is not None
 
 
 def designs_dir(data, brief_dir):
@@ -132,6 +154,41 @@ def _preview(where, raw, templates, root):
     return (tuple(names), str(raw.get("copy", "")).strip()), errors
 
 
+def _styles(raw):
+    """The named styles drawings can be prompted in. Returns (styles by name, errors)."""
+    if raw is None:
+        return {}, []
+    if not isinstance(raw, dict) or not raw:
+        return {}, ["styles must be a map of style names to styles (the name is reserved, so no need can use it)"]
+    found, errors = {}, []
+    for name, spec in raw.items():
+        where = f"styles/{name}"
+        problems = [] if isinstance(name, str) and SLUG.match(name) else [f"{where}: style names are lowercase slugs"]
+        if not isinstance(spec, dict):
+            errors += problems + [f"{where}: expected a map with style, and optionally guards and framing"]
+            continue
+        problems += _unknown(where, spec, STYLE_KEYS)
+        if _blank(spec.get("style")):
+            problems.append(f"{where}: style is required: how the drawing is drawn, in the author's own words")
+        problems += [f"{where}: {key} must be text" for key in ("guards", "framing")
+                     if key in spec and _blank(spec[key])]
+        errors += problems
+        if not problems:
+            found[name] = Style(name, spec["style"].strip(),
+                                *((spec[k].strip() if k in spec else None) for k in ("guards", "framing")))
+    return found, errors
+
+
+def drawing_prompt(subject, style, constraints=None, background=BACKGROUND):
+    """A drawing's prompt: what to draw, how, what not to draw, how it is framed, and what it stands on.
+
+    `constraints` is the brief's prompt_suffix. `background` is the remover's, not the author's: the
+    key needs a flat green ground, so the prompt that makes one belongs with the key (cutout.py).
+    """
+    parts = (subject, style.style, style.guards, style.framing, constraints, background)
+    return " ".join(p.strip() for p in parts if p and p.strip())
+
+
 def _provider_problem(name, providers, method, verb):
     if name not in providers:
         return f"unknown provider (known: {', '.join(sorted(providers))})"
@@ -183,7 +240,22 @@ def _search(where, raw, providers):
     return found, errors
 
 
-def _generate(where, raw, providers):
+def _drawing(label, spec, styles):
+    """The style a generation draws in, with what stops it. Returns (Style or None, problems)."""
+    if "style" not in spec:
+        if "subject" in spec:
+            return None, [f"{label}: subject needs a style; without one, write the whole prompt"]
+        return None, [] if not _blank(spec.get("prompt")) else [f"{label}: prompt is required"]
+    known = ", ".join(sorted(styles)) or "none: name them under styles"
+    problems = [] if spec["style"] in styles else [f"{label}: unknown style {spec['style']!r} (known: {known})"]
+    if "prompt" in spec:
+        problems.append(f"{label}: a style draws a subject, so write subject, not prompt")
+    if _blank(spec.get("subject")):
+        problems.append(f"{label}: subject is required with a style: the line saying who or what to draw")
+    return styles.get(spec["style"]), problems
+
+
+def _generate(where, raw, providers, styles):
     if not isinstance(raw, dict) or not raw:
         return {}, [f"{where}: expected a map of provider -> prompt"]
     found, errors = {}, []
@@ -198,20 +270,22 @@ def _generate(where, raw, providers):
         options = getattr(providers.get(provider), "OPTIONS", ())
         if not problem:
             problems += _unknown(label, spec, GENERATE_KEYS + tuple(options))
-        if _blank(spec.get("prompt")):
-            problems.append(f"{label}: prompt is required")
+        style, more = _drawing(label, spec, styles)
+        problems += more
         if "model" in spec and _blank(spec["model"]):
             problems.append(f"{label}: model must be a model name")
         if "seed" in spec and not _whole(spec["seed"], 0):
             problems.append(f"{label}: seed must be a whole number")
         errors += problems
         if not problems:
-            found[provider] = {"prompt": spec["prompt"].strip(), "model": spec.get("model"), "seed": spec.get("seed"),
+            found[provider] = {"prompt": None if style else spec["prompt"].strip(),
+                               "subject": spec["subject"].strip() if style else None, "style": style,
+                               "model": spec.get("model"), "seed": spec.get("seed"),
                                "options": {k: spec[k] for k in options if k in spec}}
     return found, errors
 
 
-def _need(name, raw, base, templates, providers, root):
+def _need(name, raw, base, templates, providers, styles, root):
     where = str(name)
     errors = [] if isinstance(name, str) and SLUG.match(name) else [f"{where}: need names are lowercase slugs"]
     if not isinstance(raw, dict):
@@ -226,7 +300,8 @@ def _need(name, raw, base, templates, providers, root):
     settings = {**base, **own}
     search, problems = _search(f"{where}/search", raw["search"], providers) if "search" in raw else ({}, [])
     errors += problems
-    generate, problems = _generate(f"{where}/generate", raw["generate"], providers) if "generate" in raw else ({}, [])
+    generate, problems = _generate(f"{where}/generate", raw["generate"], providers, styles) \
+        if "generate" in raw else ({}, [])
     errors += problems
     templates_, copy = settings.get("preview", ((), None))
     size = settings.get("size") or (tuple(int(g) for g in TEMPLATE.match(templates_[0]).groups()[1:])
@@ -248,7 +323,7 @@ def parse(data, templates, providers, root=None):
     """
     if not isinstance(data, dict):
         return [], ["expected a map of need names to needs"]
-    errors = []
+    styles, errors = _styles(data.get("styles"))
     defaults = data.get("defaults", {})
     if isinstance(defaults, dict):
         errors += [e + (" (the name is reserved, so no need can use it)"
@@ -262,10 +337,10 @@ def parse(data, templates, providers, root=None):
         base = {}
     names = [name for name in data if name not in RESERVED]
     if not names:
-        errors.append("no needs: name at least one need besides designs and defaults")
+        errors.append(f"no needs: name at least one need besides {', '.join(RESERVED[:-1])} and {RESERVED[-1]}")
     needs = []
     for name in names:
-        need, problems = _need(name, data[name], base, templates, providers, root)
+        need, problems = _need(name, data[name], base, templates, providers, styles, root)
         errors += problems
         if need:
             needs.append(need)
@@ -282,10 +357,13 @@ def expand(needs, providers, seed):
         for provider, queries in need.search.items():
             jobs += [Job(need.name, provider, "search", q.text, need.n, options=dict(q.options)) for q in queries]
         for provider, spec in need.generate.items():
-            prompt = f"{spec['prompt']} {need.prompt_suffix}" if need.prompt_suffix else spec["prompt"]
+            style = spec["style"]
+            prompt = drawing_prompt(spec["subject"], style, need.prompt_suffix) if style else \
+                (f"{spec['prompt']} {need.prompt_suffix}" if need.prompt_suffix else spec["prompt"])
             jobs.append(Job(need.name, provider, "generate", prompt, need.n, *need.size,
                             model=spec["model"] or providers[provider].MODEL,
-                            seed=seed if spec["seed"] is None else spec["seed"], options=spec["options"]))
+                            seed=seed if spec["seed"] is None else spec["seed"], options=spec["options"],
+                            style=style.name if style else None))
     return jobs
 
 
@@ -355,7 +433,8 @@ def describe(job):
         return {"need": job.need, "provider": job.provider, "kind": job.kind, "query": job.text, "n": job.n,
                 **job.options}
     return {"need": job.need, "provider": job.provider, "kind": job.kind, "model": job.model,
-            "size": f"{job.width}x{job.height}", **job.options, "seeds": job.seeds, "prompt": job.text}
+            **({"style": job.style} if job.style else {}), "size": f"{job.width}x{job.height}", **job.options,
+            "seeds": job.seeds, "prompt": job.text}
 
 
 def run_name(today, existing):

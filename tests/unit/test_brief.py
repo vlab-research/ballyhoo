@@ -6,6 +6,7 @@ import yaml
 
 from ballyhoo import brief
 from ballyhoo.brief import Job
+from ballyhoo.cutout import BACKGROUND
 from ballyhoo.providers import fal, firefly, gemini, openverse, pexels
 
 PROVIDERS = {p.NAME: p for p in (fal, firefly, gemini, openverse, pexels)}
@@ -70,6 +71,85 @@ def test_a_brief_expands_into_one_job_per_query_and_one_per_prompt_with_defaults
         ("ke-older-woman", ("photo-band/1080x1080",), "Take a short survey."),
         ("ma-older-man", ("photo-side/1080x1080",), "Encuesta corta.")]
     assert needs[0].need == "A Kenyan woman aged 60 or more, rural, using a phone."
+
+
+STYLES = """
+styles:
+  pastel-hand:
+    style: The picture is hand drawn, extremely detailed, in brilliant colours, pastel palette.
+    framing: One large figure, waist up.
+  bw-technical:
+    style: A hand-drawn technical drawing, black and white.
+    guards: No dimension lines, labels or annotations.
+"""
+
+
+def test_a_drawing_is_prompted_from_its_style_and_its_job_names_the_style():
+    jobs = jobs_of(STYLES + """
+defaults:
+  size: 1080x1080
+  prompt_suffix: No text anywhere.
+ke:
+  need: x
+  generate:
+    gemini: {style: pastel-hand, subject: A cool woman in her fifties from Nairobi.}
+    fal: {style: bw-technical, subject: Two fat cats with sunglasses.}
+""")
+    assert [(j.style, j.drawing) for j in jobs] == [("pastel-hand", True), ("bw-technical", True)]
+    assert jobs[0].text == (
+        "A cool woman in her fifties from Nairobi. The picture is hand drawn, extremely detailed, in brilliant "
+        "colours, pastel palette. One large figure, waist up. No text anywhere. " + BACKGROUND)
+    assert jobs[1].text == (
+        "Two fat cats with sunglasses. A hand-drawn technical drawing, black and white. No dimension lines, labels "
+        "or annotations. No text anywhere. " + BACKGROUND)
+    assert brief.describe(jobs[0])["style"] == "pastel-hand"
+    assert "style" not in brief.describe(jobs_of(BRIEF)[3]), "a prompt written out is not a drawing"
+
+
+def test_a_generation_either_names_a_style_and_a_subject_or_writes_the_whole_prompt():
+    _, errors = parse(STYLES + """
+defaults: {size: 1080x1080}
+ke:
+  need: x
+  generate:
+    gemini: {style: pastel, subject: A woman.}
+    fal: {style: pastel-hand, prompt: A woman.}
+    firefly: {style: pastel-hand}
+ma:
+  need: x
+  size: 1080x1080
+  generate:
+    gemini: {subject: A man.}
+""")
+    assert errors == [
+        "ke/generate/gemini: unknown style 'pastel' (known: bw-technical, pastel-hand)",
+        "ke/generate/fal: a style draws a subject, so write subject, not prompt",
+        "ke/generate/fal: subject is required with a style: the line saying who or what to draw",
+        "ke/generate/firefly: subject is required with a style: the line saying who or what to draw",
+        "ma/generate/gemini: subject needs a style; without one, write the whole prompt",
+    ]
+
+
+def test_the_styles_section_is_a_named_map_and_every_mistake_in_it_is_reported():
+    assert parse("styles: [pastel]\nke: {need: x, search: {pexels: y}}\n")[1] == [
+        "styles must be a map of style names to styles (the name is reserved, so no need can use it)"]
+    _, errors = parse("""
+styles:
+  Pastel:
+    style: Hand drawn.
+  bw:
+    guards: ''
+    mood: dark
+  line: A line drawing.
+ke: {need: x, search: {pexels: y}}
+""")
+    assert errors == [
+        "styles/Pastel: style names are lowercase slugs",
+        "styles/bw: unknown key 'mood'",
+        "styles/bw: style is required: how the drawing is drawn, in the author's own words",
+        "styles/bw: guards must be text",
+        "styles/line: expected a map with style, and optionally guards and framing",
+    ]
 
 
 def test_without_a_size_a_generation_takes_the_first_preview_templates_and_n_defaults_to_two():
@@ -177,7 +257,7 @@ def test_designs_and_defaults_are_reserved_and_a_brief_needs_a_need():
     assert brief.designs_dir({"designs": {"need": "x"}}, "/study")[1] == [
         "designs must be the path to the directory of designs (the name is reserved, so no need can use it)"]
     assert brief.designs_dir(["ke"], "/study")[1] == ["expected a map of need names to needs"]
-    assert parse("designs: designs\n")[1] == ["no needs: name at least one need besides designs and defaults"]
+    assert parse("designs: designs\n")[1] == ["no needs: name at least one need besides designs, defaults and styles"]
     assert parse("defaults: [n]\nke: {need: x, search: {pexels: y}}\n")[1] == [
         "defaults must be a map of settings every need shares (the name is reserved, so no need can use it)"]
 
