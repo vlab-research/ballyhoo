@@ -2,8 +2,10 @@
 # enough to run whenever the tool changes. Its review page is also where queries
 # are tuned, by each query's keep rate. README.md § Smoke test has the commands.
 #
-# Stock only: photos come from stock, and image models make drawings, which
-# preview cannot place yet (docs/creative-rules.md).
+# Photos come from stock and image models make drawings (docs/creative-rules.md),
+# so three needs search Pexels for a photograph and the fourth, the one stock has
+# never served, is drawn by Gemini on flat green, cut out, and previewed in the
+# figure template. The searches are free; the drawings cost about $0.20 a run.
 #
 # The needs are regions, not countries. A person who reads as East African serves
 # a Kenyan study and one who reads as North African or Arab a Moroccan one;
@@ -36,6 +38,51 @@ defaults:
   preview:
     templates: &band [photo-band/1080x1080]
     copy: Take a short survey and share *your views*.
+
+# The styles the author draws in, quoted from docs/creative-rules.md § Drawing
+# styles the author has used: their words, typos and all, less the subject each
+# prompt named, which is what a need's subject line carries.
+#
+# The guards are not the author's, and neither is the second half of each
+# framing line: they come from the drawing spike, where "technical drawing"
+# became a blueprint with dimension lines, and a line drawing of a woman in
+# Nairobi became a street scene with shop signs and real brand names
+# (planning/phase-2-imagery.md § Spike results). Firefly needed neither.
+#
+# The prompt spike is still tuning this wording. When it settles, these texts
+# are what changes, and nothing else: a need names a style and a subject.
+styles:
+  precise-pastel:
+    style: >-
+      She's not pretty, her features are not the right proportions. Her eyes
+      dont sit at exactly the same level, although close. Her eyebrows are
+      bushy. Hair is cut stylishly, but not cut well. She would never be a
+      model. The picture is hand draw, but extremely detailed, precise,
+      accurate, not stylized...but in brilliant colors, which are stylized.
+      - pastel palette.
+    framing: >-
+      She has her mobile phone in his hand, but she's looking off into the
+      distance. We see her at an angle. One figure, waist up, filling the
+      frame, and nothing else in the picture.
+    guards: No lettering, signs, logos or brand names anywhere.
+  bright-line:
+    style: It should be a line drawing, brightly colored.
+    framing: >-
+      She should be on her mobile phone, but looking at us. One figure, waist
+      up, filling the frame, and nothing else in the picture.
+    guards: No lettering, signs, logos or brand names anywhere.
+  bw-technical:
+    style: I would like a hand-drawn technical drawing, black and white.
+    guards: >-
+      No dimension lines, measurements, labels or annotations: technical here
+      is the hand-drawn look, not a blueprint.
+  pencil-technical:
+    style: >-
+      An abstract technical line drawing. The image should be colored, brightly
+      colored, as though with colored pencil.
+    guards: >-
+      No dimension lines, measurements, labels or annotations: technical here
+      is the hand-drawn look, not a blueprint.
 
 ea-woman:
   need: >-
@@ -109,4 +156,26 @@ na-woman:
       - arab woman laughing candid
   preview:
     templates: *band
+    copy: Répondez à une courte enquête et donnez *votre avis*.
+
+# The same person, drawn, since no catalogue has her: two images a run, so a
+# drawing run costs about as much as a coffee and can be compared with the
+# photographs above under the same need.
+na-woman-drawn:
+  need: >-
+    A drawing of a woman who reads as North African or Arab, about 45 to 55,
+    without a headscarf, in the house style: docs/creative-rules.md § Drawing
+    styles the author has used, and the art in characters/ for what it looks
+    like when it works. Judge the drawing first, by looking, as a photograph is
+    judged. Then look at the cut-out beside it: a green edge, a fringe or a hole
+    in the figure is a drop whatever the mask check said, and a mask check that
+    failed is a warning to look closely, not a verdict.
+  n: 2
+  prompt_suffix: No text, letters or numbers anywhere in the image.
+  generate:
+    gemini:
+      style: precise-pastel
+      subject: A cool woman in her fifties from Casablanca, without a headscarf.
+  preview:
+    templates: [figure-band/1080x1080]
     copy: Répondez à une courte enquête et donnez *votre avis*.
