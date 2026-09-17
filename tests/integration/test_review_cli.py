@@ -17,7 +17,8 @@ import fake_provider
 from ballyhoo import art, cli, provenance, render, review_server, verdicts
 
 SMOKE_DESIGNS = Path(__file__).parents[2] / "smoke" / "designs"
-TODAY = datetime.date.today()
+TODAY = datetime.datetime.now(datetime.timezone.utc).date()  # a run is named for its UTC day
+RATED_ON = datetime.date.today()  # the page stamps a save with the rater's own day, which is not the run's
 BAND = "photo-band/1080x1080"
 AGENT = "claude-code (claude-opus-5)"
 BRIEF = f"""designs: {SMOKE_DESIGNS}
@@ -274,6 +275,6 @@ def test_a_person_rates_on_the_page_and_saving_writes_verdicts(run, served, tmp_
         finally:
             browser.close()
     assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {
-        "rated_by": "A. Author", "rated_on": TODAY, "needs": {"ke-woman": {
+        "rated_by": "A. Author", "rated_on": RATED_ON, "needs": {"ke-woman": {
             "fake-bright-2": {"verdict": "drop"},
             "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."}}}}

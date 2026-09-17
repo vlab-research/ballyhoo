@@ -12,7 +12,7 @@ from ballyhoo import art, cli, provenance, render
 REPO = Path(__file__).parents[2]
 SMOKE_DESIGNS = REPO / "smoke" / "designs"
 HIND = REPO / "tests" / "fixtures" / "lac" / "library" / "fonts" / "Hind-Bold.ttf"
-TODAY = datetime.date.today().isoformat()
+TODAY = datetime.datetime.now(datetime.timezone.utc).date().isoformat()  # a run is named for its UTC day
 BAND = "photo-band/1080x1080"
 FIGURES = "figure-band/1080x1080"
 COPY = "Take a short survey and get *KES 100* airtime."

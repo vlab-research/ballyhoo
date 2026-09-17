@@ -65,6 +65,11 @@ def _now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _today():
+    """A run's day, in UTC as its timestamps are: named for a local day, a run holds another day's manifest."""
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
 def write_atomically(path, text):
     """Write a file whole, by renaming a finished temporary file over it, so no reader sees half of one."""
     path = Path(path)
@@ -128,7 +133,7 @@ def source(path, jobs, costs, providers, http, env, out=None, today=None, sleep=
     still run.
     """
     path = Path(path).resolve()
-    today = today or datetime.date.today()
+    today = today or _today()
     run = new_run(Path(out) if out else path.parent / RUNS, today)
     shutil.copyfile(path, run / BRIEF)
     started, records, errors, known = _now(), [], [], {}

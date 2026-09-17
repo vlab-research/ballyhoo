@@ -8,7 +8,7 @@ from PIL import Image
 
 from ballyhoo import candidates, cli
 
-TODAY = datetime.date.today().isoformat()
+TODAY = datetime.datetime.now(datetime.timezone.utc).date().isoformat()  # a run is named for its UTC day
 PREVIEW = "defaults:\n  preview: {templates: [photo-band/1080x1080], copy: Take a short survey.}\n"
 
 
@@ -207,6 +207,15 @@ def test_a_drawing_is_cut_out_beside_the_generation_and_the_candidate_records_th
     assert [(r["style"], r["cut_out"], r["mask_failed"]) for r in manifest["requests"]] == [
         ("pastel-hand", 2, 0), ("pastel-hand", 1, 1)]
     assert manifest["errors"] == [], "a mask check a person must look at is not a failed run"
+
+
+def test_a_run_is_named_for_the_day_its_own_timestamps_say_it_started(sent, study, capsys):
+    path = study(PREVIEW + "ke-woman:\n  need: A woman.\n  search: {fake: bright village}\n")
+    assert cli.main(["source", str(path)]) == 0
+    capsys.readouterr()
+    [run] = list((path.parent / "runs").iterdir())
+    started = yaml.safe_load((run / "manifest.yaml").read_text())["started"]
+    assert run.name == f"{str(started)[:10]}-1", "the name and the timestamps are both UTC, whatever the local day is"
 
 
 def test_a_second_run_gets_a_new_folder_and_leaves_the_first_alone(sent, study, capsys):
