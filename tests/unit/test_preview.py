@@ -1,10 +1,13 @@
 from ballyhoo.brief import Need
-from ballyhoo.candidates import Candidate
-from ballyhoo.preview import Outcome, Preview, checks_data, plan, slot_problems, slot_src
+from ballyhoo.candidates import Candidate, Cutout
+from ballyhoo.preview import Outcome, Preview, checks_data, plan, slot_for, slot_problems, slot_src, wanted
 
-BAND, SIDE = "photo-band/1080x1080", "photo-side/1200x628"
+BAND, SIDE, FIGURES = "photo-band/1080x1080", "photo-side/1200x628", "figure-band/1080x1080"
 COPY = "Take a short survey."
-NO_SCENE = 'photo-side/1200x628: it has no #scene; candidates go into an <img id="scene">'
+NO_SCENE = 'photo-side/1200x628: it has no #scene; a photo goes into an <img id="scene">'
+NO_FIGURE = 'photo-side/1200x628: it has no #figure; a drawing goes into an <img id="figure">'
+BAND_NO_FIGURE = 'photo-band/1080x1080: it has no #figure; a drawing goes into an <img id="figure">'
+FIGURES_NO_SCENE = 'figure-band/1080x1080: it has no #scene; a photo goes into an <img id="scene">'
 
 
 def need(name="ke-woman", templates=(BAND,)):
@@ -16,21 +19,30 @@ def candidate(id_, full=None):
     return Candidate(id_, 1600, 1200, full, full, {"source": "stock"})
 
 
-def test_a_template_takes_candidates_only_in_an_img_with_the_slot_id():
-    assert slot_problems(BAND, '<div id="canvas"><img id="scene" src="scene-placeholder.png"></div>') == []
-    assert slot_src('<div id="canvas"><img id="scene" src="scene-placeholder.png"></div>') == "scene-placeholder.png"
-    assert slot_src("<img class=photo id=scene src=a.jpg />") == "a.jpg"
-    assert slot_problems(SIDE, '<div id="canvas"><img id="photo" src="p.png"></div>') == [NO_SCENE]
-    assert slot_problems(SIDE, '<!-- <img id="scene" src="p.png"> --><div id="canvas"></div>') == [NO_SCENE]
-    assert slot_problems(BAND, '<div id="scene"></div>') == [
-        'photo-band/1080x1080: its #scene is a <div>; candidates go into an <img id="scene">']
-    assert slot_src('<div id="scene"></div>') is None
+def drawing(id_):
+    path = f"generated/{id_}.png"
+    return Candidate(id_, 1080, 1080, path, path, {"source": "generated"},
+                     cutout=Cutout(f"cutouts/{id_}.png", (9, 193, 18)))
+
+
+def test_a_template_takes_a_candidate_only_in_an_img_with_that_slots_id():
+    band = '<div id="canvas"><img id="scene" src="scene-placeholder.png"></div>'
+    assert slot_problems(BAND, band, "scene") == []
+    assert slot_src(band, "scene") == "scene-placeholder.png"
+    assert slot_src("<img class=photo id=scene src=a.jpg />", "scene") == "a.jpg"
+    assert slot_problems(SIDE, '<div id="canvas"><img id="photo" src="p.png"></div>', "scene") == [NO_SCENE]
+    assert slot_problems(SIDE, '<!-- <img id="scene" src="p.png"> --><div id="canvas"></div>', "scene") == [NO_SCENE]
+    assert slot_problems(SIDE, band, "figure") == [NO_FIGURE]
+    assert slot_problems(BAND, '<div id="scene"></div>', "scene") == [
+        'photo-band/1080x1080: its #scene is a <div>; a photo goes into an <img id="scene">']
+    assert slot_src('<div id="scene"></div>', "scene") is None
 
 
 def test_each_candidate_goes_into_each_of_its_needs_templates_named_by_id_design_and_size():
     generated = candidate("fal-e7cf824177a6", "generated/fal-e7cf824177a6.png")
     previews, errors = plan([need(templates=(BAND, SIDE))], {"ke-woman": [candidate("fake-bright-2"), generated]},
-                            {BAND: [], SIDE: []})
+                            {(BAND, "scene"): [], (BAND, "figure"): [BAND_NO_FIGURE],
+                             (SIDE, "scene"): [], (SIDE, "figure"): [NO_FIGURE]})
     assert errors == []
     assert [(p.candidate, p.template, p.image, p.file) for p in previews] == [
         ("fake-bright-2", BAND, "originals/fake-bright-2.jpg", "previews/fake-bright-2_photo-band_1080x1080.png"),
@@ -43,13 +55,37 @@ def test_each_candidate_goes_into_each_of_its_needs_templates_named_by_id_design
     assert {(p.need, p.slot, p.copy) for p in previews} == {("ke-woman", "scene", COPY)}
 
 
+def test_a_drawing_previews_as_its_cut_out_in_the_figure_slot_and_a_photo_in_the_scene():
+    needs = [need(templates=(BAND, FIGURES))]
+    found = {"ke-woman": [candidate("fake-bright-2"), drawing("fake-3f9a0c1d")]}
+    checked = {(BAND, "scene"): [], (BAND, "figure"): [BAND_NO_FIGURE],
+               (FIGURES, "scene"): [FIGURES_NO_SCENE], (FIGURES, "figure"): []}
+    assert wanted(needs, found) == list(checked)
+    assert [slot_for(c) for c in found["ke-woman"]] == ["scene", "figure"]
+
+    previews, errors = plan(needs, found, checked)
+    assert errors == [], "a template that takes the other kind is passed over, not a mistake"
+    assert [(p.candidate, p.template, p.slot, p.image, p.file) for p in previews] == [
+        ("fake-bright-2", BAND, "scene", "originals/fake-bright-2.jpg",
+         "previews/fake-bright-2_photo-band_1080x1080.png"),
+        ("fake-3f9a0c1d", FIGURES, "figure", "cutouts/fake-3f9a0c1d.png",
+         "previews/fake-3f9a0c1d_figure-band_1080x1080.png"),
+    ]
+
+
+def test_a_kind_none_of_a_needs_templates_takes_is_an_error_naming_what_they_lack():
+    assert plan([need(templates=(BAND,))], {"ke-woman": [drawing("fake-3f9a0c1d")]},
+                {(BAND, "scene"): [], (BAND, "figure"): [BAND_NO_FIGURE]}) == ([], [BAND_NO_FIGURE])
+
+
 def test_a_need_with_no_candidates_is_left_out_and_every_problem_is_reported_together():
     needs = [need("ke-woman"), need("ma-man", templates=()), need("down"),
              need("ke-man", templates=(SIDE,)), need("ke-elder", templates=(SIDE,))]
     found = {"ke-woman": [candidate("fake-bright-2"), candidate("pexels-9", "https://images.pexels.com/9/original")],
              "ma-man": [candidate("fake-dark-2")], "ke-man": [candidate("fake-bright-3")],
              "ke-elder": [candidate("fake-bright-4")]}
-    previews, errors = plan(needs, found, {BAND: [], SIDE: [NO_SCENE]})
+    previews, errors = plan(needs, found, {(BAND, "scene"): [], (BAND, "figure"): [BAND_NO_FIGURE],
+                                           (SIDE, "scene"): [NO_SCENE], (SIDE, "figure"): [NO_FIGURE]})
     assert errors == [
         "ke-woman/pexels-9: its image is not in the run, only at https://images.pexels.com/9/original",
         "ma-man: the brief names no preview templates for it",
@@ -59,8 +95,10 @@ def test_a_need_with_no_candidates_is_left_out_and_every_problem_is_reported_tog
 
 
 def test_previews_that_would_overwrite_each_other_are_an_error():
-    _, errors = plan([need(templates=("c/1080x1080", "b_c/1080x1080"))],
-                     {"ke-woman": [candidate("fake-a_b"), candidate("fake-a")]}, {"c/1080x1080": [], "b_c/1080x1080": []})
+    a, b = "c/1080x1080", "b_c/1080x1080"
+    _, errors = plan([need(templates=(a, b))], {"ke-woman": [candidate("fake-a_b"), candidate("fake-a")]},
+                     {(a, "scene"): [], (a, "figure"): [f"{a}: no figure"],
+                      (b, "scene"): [], (b, "figure"): [f"{b}: no figure"]})
     assert errors == ["ke-woman: two previews would both be previews/fake-a_b_c_1080x1080.png"]
 
 

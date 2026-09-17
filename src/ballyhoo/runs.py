@@ -275,17 +275,19 @@ def keep_verdicts(run, need, to_dir, providers, http):
                          today=person.rated_on, fetched=fetched)
 
 
-def template_problems(designs, name):
-    """What stops a template previewing candidates: no slot, or a file it shows that is missing or unsourced.
+def template_problems(designs, name, slot):
+    """What stops a template previewing a candidate in `slot`: no slot, or a file it shows that is
+    missing or unsourced.
 
-    The image in the slot is not shown in a preview, so it is not required.
+    The image in the slot is not shown in a preview, so it is not required. Any other image is, that
+    slot's neighbour included: a drawing put into #figure still leaves the template's #scene showing.
     """
     path = designs / f"{name}.html"
     source = path.read_text()
-    problems = preview.slot_problems(name, source)
+    problems = preview.slot_problems(name, source, slot)
     if problems:
         return problems
-    exempt = [preview.slot_src(source)]
+    exempt = [preview.slot_src(source, slot)]
     missing = [r for r in cache.template_refs(source) if r not in exempt and not (path.parent / r).resolve().is_file()]
     return ([f"{name}: references missing file {r}" for r in missing]
             + [f"{name}: {p}" for p in art.unsourced_images(path, exempt)])
@@ -325,8 +327,8 @@ def render_previews(run, providers):
     """
     run = Path(run)
     needs, designs, found, _, errors = read(run, providers)
-    used = {t for need in needs if need.name in found for t in need.templates}
-    previews, problems = preview.plan(needs, found, {t: template_problems(designs, t) for t in used})
+    checked = {pair: template_problems(designs, *pair) for pair in preview.wanted(needs, found)}
+    previews, problems = preview.plan(needs, found, checked)
     errors += problems
     empty = [need.name for need in needs if need.name not in found]
     if errors:

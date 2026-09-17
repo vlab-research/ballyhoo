@@ -42,8 +42,11 @@ HASH_KEY = "render-inputs"
 # Mask images are fetched in CORS mode, which file:// pages fail without this flag.
 CHROME_ARGS = ["--allow-file-access-from-files", "--font-render-hinting=none"]
 
-# The <img> ids the page measures: another image can be put into each, and each fails when drawn upscaled.
+# The <img> ids measured in every render: each fails when drawn upscaled.
 SLOTS = ("scene",)
+# The ids an image can be put into. #figure is measured only in the render that fills it: a photo
+# drawn larger than it is looks soft, while a template's own figure is art a design may enlarge.
+SWAP_SLOTS = ("scene", "figure")
 
 TEXT_COLOUR = """#headline, #headline * {{ color: {} !important;
   text-shadow: none !important; -webkit-text-stroke: 0 !important; }}"""
@@ -218,8 +221,8 @@ async def render(browser, template, text, swap=None):
 
     `swap` is (slot id, image path): the page shows that image in the slot instead of the template's own.
     """
-    if swap and swap[0] not in SLOTS:
-        raise ValueError(f"cannot put an image into #{swap[0]}: slots are {', '.join(SLOTS)}")
+    if swap and swap[0] not in SWAP_SLOTS:
+        raise ValueError(f"cannot put an image into #{swap[0]}: slots are {', '.join(SWAP_SLOTS)}")
     swap_url = swap and Path(swap[1]).resolve().as_uri()
     W, H = copyfile.template_size(template.name)
     page = await browser.new_page(viewport={"width": W, "height": H}, device_scale_factor=1)
@@ -228,7 +231,7 @@ async def render(browser, template, text, swap=None):
         if swap:
             await page.evaluate(SWAP_JS, [swap[0], swap_url])
         await page.evaluate(PREPARE_JS, copyfile.markup(text))
-        info = await page.evaluate(READ_JS, list(SLOTS))
+        info = await page.evaluate(READ_JS, list(dict.fromkeys(SLOTS + (swap[0],))) if swap else list(SLOTS))
         settings, errors = fit.parse_settings(info["attrs"], info["start"])
         images, problems = checks.slot_images(info["images"])
         errors += problems

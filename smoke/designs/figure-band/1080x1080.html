@@ -1,0 +1,41 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>figure-band 1080x1080</title>
+<!--
+  The smoke-test drawing template, made for ballyhoo rather than rebuilt from a
+  partner design: a flat ground, an opaque band carrying the headline, and a
+  transparent cut-out composited over both, as the partner's character designs
+  place their figures.
+
+  #figure covers the whole canvas and draws its image with object-fit: contain,
+  so a square cut-out maps one to one onto the page: a figure drawn to the top
+  of its image runs into the headline and fails the collision check, which is
+  what previewing a drawing should find out. The band is opaque, so contrast
+  does not depend on the drawing, and the headline sits above the figure, as
+  text does in every design.
+
+  #figure's own src is a placeholder with provenance, so the template renders on
+  its own; preview puts each candidate's cut-out in its place. The font is the
+  LAC fixture's Hind Bold, so the repository holds one copy.
+-->
+<style>
+  @font-face { font-family: "Hind"; src: url("../../../tests/fixtures/lac/library/fonts/Hind-Bold.ttf"); font-weight: 700; }
+  html, body { margin: 0; }
+  #canvas { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: rgb(232, 226, 211); }
+  #canvas > * { position: absolute; margin: 0; }
+  #band {
+    left: 0; top: 0; width: 1080px; height: 320px;
+    background: rgb(255, 250, 240); border-bottom: 14px solid #E0662B;
+  }
+  #figure { left: 0; top: 0; width: 1080px; height: 1080px; object-fit: contain; }
+  #headline {
+    left: 56px; top: 40px; width: 968px; height: 240px; display: flex; align-items: center;
+    font: 700 84px/1.1 "Hind", sans-serif; color: #1A1A1A;
+  }
+  #headline em { font-style: normal; color: #B3261E; }
+</style>
+<div id="canvas">
+  <div id="band"></div>
+  <img id="figure" src="figure-placeholder.png">
+  <h1 id="headline" data-min-size="56" data-max-lines="3"><span>{{text}}</span></h1>
+</div>

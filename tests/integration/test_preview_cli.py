@@ -14,8 +14,25 @@ SMOKE_DESIGNS = REPO / "smoke" / "designs"
 HIND = REPO / "tests" / "fixtures" / "lac" / "library" / "fonts" / "Hind-Bold.ttf"
 TODAY = datetime.date.today().isoformat()
 BAND = "photo-band/1080x1080"
+FIGURES = "figure-band/1080x1080"
 COPY = "Take a short survey and get *KES 100* airtime."
 ONE_NEED = "ke-woman:\n  need: A woman.\n  search: {fake: bright village}\n"
+DRAWINGS = f"""
+styles:
+  pastel-hand:
+    style: The picture is hand drawn, extremely detailed, pastel palette.
+    framing: One large figure, waist up.
+na-woman:
+  need: A woman who reads as North African, drawn.
+  generate:
+    fake: {{style: pastel-hand, subject: 'figure: a woman in her fifties.'}}
+  preview: {{templates: [{FIGURES}], copy: '{COPY}'}}
+na-tall:
+  need: A woman drawn to the top of the frame.
+  generate:
+    fake: {{style: pastel-hand, subject: 'tall: a woman in her fifties.'}}
+  preview: {{templates: [{FIGURES}], copy: '{COPY}'}}
+"""
 
 
 def source(tmp_path, capsys, designs, needs):
@@ -37,6 +54,34 @@ def test_the_smoke_template_renders_on_its_own_with_its_placeholder(tmp_path):
     assert errors == []
     assert (result.status, result.lines) == ("ok", 2), result.message
     assert result.message.endswith(", scene 1.00x")
+
+
+@pytest.mark.browser
+def test_the_figure_template_renders_on_its_own_with_its_placeholder(tmp_path):
+    copy = tmp_path / "creatives.yaml"
+    copy.write_text(f'designs: {SMOKE_DESIGNS}\nfigure-band:\n  KE:\n    airtime: "{COPY}"\n')
+    [result], errors = render.run(copy, check=True)
+    assert errors == []
+    assert (result.status, result.lines) == ("ok", 2), result.message
+    assert "figure" not in result.message, "a template's own figure is not measured; a candidate put into one is"
+
+
+@pytest.mark.browser
+def test_a_drawing_previews_as_a_cut_out_in_the_figure_slot_and_a_headline_over_it_collides(sent, tmp_path, capsys):
+    run = source(tmp_path, capsys, SMOKE_DESIGNS, DRAWINGS)
+    assert cli.main(["preview", str(run)]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "2 previews: 1 pass, 1 fail, 0 errors"
+
+    checks = yaml.safe_load((run / "na-woman" / "checks.yaml").read_text())
+    [(drawn, entry)] = checks["candidates"].items()
+    assert entry["pass"] and entry["previews"][FIGURES]["status"] == "pass"
+    assert entry["previews"][FIGURES]["summary"].endswith(", figure 1.00x"), "the cut-out fills the slot one to one"
+    assert entry["previews"][FIGURES]["file"] == f"previews/{drawn}_figure-band_1080x1080.png"
+    assert (run / "na-woman" / "cutouts" / f"{drawn}.png").is_file()
+
+    [tall] = yaml.safe_load((run / "na-tall" / "checks.yaml").read_text())["candidates"].values()
+    [collision] = tall["previews"][FIGURES]["failures"]
+    assert collision.startswith("headline overlaps #figure (") and collision.endswith(" px)")
 
 
 @pytest.mark.browser
@@ -94,7 +139,7 @@ def test_a_template_without_a_scene_is_an_error_and_nothing_is_rendered(sent, tm
 
     assert cli.main(["preview", str(run)]) == 1
     assert capsys.readouterr().out.splitlines() == [
-        'FAIL  photo-band/1080x1080: it has no #scene; candidates go into an <img id="scene">']
+        'FAIL  photo-band/1080x1080: it has no #scene; a photo goes into an <img id="scene">']
     assert not (run / "ke-woman" / "previews").exists() and not (run / "ke-woman" / "checks.yaml").exists()
 
 

@@ -2,8 +2,12 @@
 
 Pure. A run's need folders hold candidates, and its brief names the templates
 and the headline to preview them with. This module decides which previews to
-render and what they are called, whether a template can take a candidate, and
-what checks.yaml records. runs.py renders them and writes the files.
+render and what they are called, which slot a candidate fills and whether a
+template has it, and what checks.yaml records. runs.py renders them and writes
+the files.
+
+A photograph goes into a template's #scene, and a drawing, which reaches a run
+as a cut-out, into its #figure, where the collision check already applies.
 """
 from collections import Counter
 from dataclasses import dataclass
@@ -11,7 +15,9 @@ from html.parser import HTMLParser
 
 PREVIEWS = "previews"
 CHECKS = "checks.yaml"
-SLOT = "scene"  # a photo candidate goes into the template's <img id="scene">
+SCENE, FIGURE = "scene", "figure"
+SLOTS = (SCENE, FIGURE)
+KIND = {SCENE: "photo", FIGURE: "drawing"}  # what each slot takes
 URL = ("http://", "https://")
 
 
@@ -60,43 +66,62 @@ def _element(source, slot):
     return parser.found.get(slot, (None, None))
 
 
-def slot_src(source, slot=SLOT):
-    """The src a template gives its slot, which a preview replaces: None when it has none."""
+def slot_src(source, slot):
+    """The src a template gives a slot, which a preview replaces: None when it has no image there."""
     tag, src = _element(source, slot)
     return src if tag == "img" else None
 
 
-def slot_problems(name, source, slot=SLOT):
+def slot_problems(name, source, slot):
     """Why a template cannot take a candidate in `slot`; [] when it can."""
     tag, _ = _element(source, slot)
     if tag == "img":
         return []
     found = f"its #{slot} is a <{tag}>" if tag else f"it has no #{slot}"
-    return [f'{name}: {found}; candidates go into an <img id="{slot}">']
+    return [f'{name}: {found}; a {KIND[slot]} goes into an <img id="{slot}">']
+
+
+def slot_for(candidate):
+    """Where a candidate goes: a photograph fills the scene, and a drawing, being a cut-out, the figure."""
+    return FIGURE if candidate.cutout else SCENE
+
+
+def wanted(needs, found):
+    """Every (template, slot) a run's previews may need, for the shell to check each template for.
+
+    Both slots of every template, not only the ones this run's candidates fill: a template that
+    takes neither previews nothing, whatever was sourced, and that is worth saying.
+    """
+    pairs = [(t, slot) for need in needs if need.name in found for t in need.templates for slot in SLOTS]
+    return list(dict.fromkeys(pairs))
 
 
 def plan(needs, found, template_problems):
     """The previews to render. Returns (previews, errors); render nothing when there are errors.
 
-    `found` maps each need that has a candidates file to its candidates, and `template_problems`
-    maps each template those needs name to what stops it taking a candidate. Each candidate goes
-    into each of its need's templates, in brief order.
+    `found` maps each need that has a candidates file to its candidates, and `template_problems` what
+    stops each (template, slot) pair taking one, as `wanted` lists them. A candidate goes into every
+    one of its need's templates that takes its kind, in brief order. A template that takes the other
+    kind is passed over, since a photo template cannot show a drawing; a kind that none of a need's
+    templates takes is an error naming what stops each of them.
     """
-    previews, errors, templates = [], [], []
+    previews, errors, missing = [], [], []
     for need in needs:
         if need.name not in found:
             continue
         if not need.templates:
             errors.append(f"{need.name}: the brief names no preview templates for it")
             continue
-        templates += [t for t in need.templates if t not in templates]
         for c in found[need.name]:
-            if c.full.startswith(URL):
-                errors.append(f"{need.name}/{c.id}: its image is not in the run, only at {c.full}")
-            else:
-                previews += [Preview(need.name, c.id, c.full, t, SLOT, need.copy) for t in need.templates]
-    for t in templates:
-        errors += template_problems[t]
+            if c.image.startswith(URL):
+                errors.append(f"{need.name}/{c.id}: its image is not in the run, only at {c.image}")
+                continue
+            slot = slot_for(c)
+            usable = [t for t in need.templates if not template_problems[(t, slot)]]
+            if not usable:
+                missing += [p for t in need.templates for p in template_problems[(t, slot)]]
+            previews += [Preview(need.name, c.id, c.image, t, slot, need.copy) for t in usable]
+    errors += [p for p in dict.fromkeys(missing) if p not in errors]
     clashes = Counter((p.need, p.file) for p in previews)
     errors += [f"{need}: two previews would both be {file}" for (need, file), n in clashes.items() if n > 1]
     return previews, errors
