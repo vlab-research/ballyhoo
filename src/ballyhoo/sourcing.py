@@ -225,7 +225,9 @@ def add_candidates(directory, found, http):
 def keep(candidates_file, picks, to_dir, picked_by, http, today=None, fetched=None):
     """Write each picked candidate into `to_dir` with its sidecar. Returns (written paths, errors).
 
-    `today` is the day it was picked; `fetched`, when a stock candidate's file was downloaded, by default `today`.
+    A drawing is kept as its cut-out, which is the artefact; its record keeps the digest of the
+    generation the cut-out was made from. `today` is the day it was picked; `fetched`, when a stock
+    candidate's file was downloaded, by default `today`.
     """
     candidates_file, to_dir = Path(candidates_file), Path(to_dir)
     found, errors = cands.load(yaml.safe_load(candidates_file.read_text()))
@@ -236,7 +238,7 @@ def keep(candidates_file, picks, to_dir, picked_by, http, today=None, fetched=No
     written = []
     for k in keeps:
         try:
-            data = read_image(http, candidates_file.parent, k.candidate.full)
+            data = read_image(http, candidates_file.parent, k.candidate.image)
             digest = hashlib.sha256(data).hexdigest()
             record, problems = cands.kept_record(k.candidate, digest, picked_by, today or datetime.date.today(), fetched)
             if problems:
