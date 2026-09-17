@@ -12,6 +12,14 @@ outcome it wants:
 - "small": 400 px square, so a scene stretched over an ad is upscaled;
 - "error": the server answers 503.
 
+A drawing comes back on flat chroma-key green, as the real prompts ask for, so
+a generation can be cut out and put in a figure slot:
+
+- "figure": a clean figure in the lower half, which the mask check passes;
+- "spill": the same, ringed with green blended into its edges;
+- "tall": a figure from top to bottom, so a headline across the top collides;
+- "hollow": a figure too small to be one, which the mask check fails.
+
 Seed 13 is always refused. Search results are numbered from the query's word
 count, so queries of different lengths overlap as real ones do: "bright village"
 finds bright-2 and bright-3, and "bright old village" finds bright-3 and bright-4.
@@ -37,7 +45,11 @@ STOCK_SIZE = (1600, 1200)  # covers a 1080 px ad without being enlarged
 # Background and a centred disc, so no image is one flat colour.
 COLOURS = {"bright": ((236, 232, 220), (205, 212, 196)), "small": ((236, 232, 220), (205, 212, 196)),
            "dark": ((28, 28, 32), (48, 46, 52))}
-OUTCOME = re.compile(r"\b(bright|dark|small|error)\b")
+GREEN, INK = (10, 200, 20), (222, 176, 140)
+# Each figure's box on the image, as fractions of its width and height.
+FIGURES = {"figure": (0.30, 0.45, 0.70, 0.95), "spill": (0.30, 0.45, 0.70, 0.95),
+           "tall": (0.32, 0.04, 0.68, 0.98), "hollow": (0.45, 0.42, 0.55, 0.52)}
+OUTCOME = re.compile(r"\b(bright|dark|small|error|figure|spill|tall|hollow)\b")
 PRICE = {"checked": "2026-09-14", "source": "tests/fake_provider.py", "per_request": 0.0,
          "per_image": {MODEL: 0.25}}
 
@@ -78,8 +90,24 @@ def parse_image(payload):
     return base64.b64decode(payload["image"])
 
 
+def draw_figure(outcome, width, height, offset=0):
+    """A drawing on flat chroma-key green; `offset` shifts the figure, so different seeds differ."""
+    left, top, right, bottom = FIGURES[outcome]
+    image = Image.new("RGB", (width, height), GREEN)
+    box = [round(left * width) + offset % 8, round(top * height), round(right * width) + offset % 8,
+           round(bottom * height)]
+    draw = ImageDraw.Draw(image)
+    if outcome == "spill":
+        draw.rectangle([box[0] - 3, box[1] - 3, box[2] + 3, box[3] + 3],
+                       fill=tuple((a + b) // 2 for a, b in zip(GREEN, INK)))
+    draw.rectangle(box, fill=INK)
+    return image
+
+
 def draw(outcome, width, height, offset=0):
     """An image for an outcome; `offset` moves the disc, so different seeds give different bytes."""
+    if outcome in FIGURES:
+        return draw_figure(outcome, width, height, offset)
     background, disc = COLOURS[outcome]
     image = Image.new("RGB", (width, height), background)
     r = min(width, height) // 4

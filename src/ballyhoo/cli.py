@@ -190,6 +190,19 @@ def print_plan(jobs, costs, max_cost):
     print(f"{len(jobs)} requests, estimated ${estimate:.2f} (--max-cost ${max_cost:.2f})")
 
 
+def sourced(record):
+    """What one request found, as `source` prints it."""
+    if "results" in record:
+        return f"{record['results']} results, {record['new']} new"
+    if "images" not in record:
+        return "nothing"
+    found = f"{record['images']} images, {record['refused']} refused"
+    if "cut_out" in record:
+        failed = record["mask_failed"]
+        found += f", {record['cut_out']} cut out" + (f" ({failed} failed the mask check)" if failed else "")
+    return found
+
+
 def run_source(ap, args):
     if not args.brief.is_file():
         ap.error(f"{args.brief}: no such brief")
@@ -209,9 +222,7 @@ def run_source(ap, args):
     with sourcing.client() as http:
         run, records, errors = runs.source(args.brief, jobs, costs, PROVIDERS, http, os.environ, out=args.out)
     for r in records:
-        found = f"{r['results']} results, {r['new']} new" if "results" in r else \
-            f"{r['images']} images, {r['refused']} refused" if "images" in r else "nothing"
-        print(f"done  {r['need']}/{r['provider']} {r['kind']}: {found} in {r['seconds']} s")
+        print(f"done  {r['need']}/{r['provider']} {r['kind']}: {sourced(r)} in {r['seconds']} s")
     for e in errors:
         print(f"FAIL  {e}")
     print(f"run {run}: {len(records)} requests, {len(errors)} errors")

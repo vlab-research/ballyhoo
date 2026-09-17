@@ -45,6 +45,11 @@
   .preview.fail img { border-color: var(--drop); }
   .preview .no-render { padding: 2rem .5rem; text-align: center; border: 3px dashed var(--drop); }
   .preview figcaption { font-size: 12px; }
+  .cutout { margin: 0; width: 240px; max-width: 100%; }
+  .cutout img { display: block; width: 100%; height: auto; box-sizing: border-box; border: 3px solid var(--keep);
+                background: repeating-conic-gradient(#e6e6e2 0 25%, #fff 0 50%) 0 0 / 24px 24px; }
+  .cutout.fail img { border-color: var(--drop); }
+  .cutout figcaption { font-size: 12px; }
   .failures { color: var(--drop); margin: .2rem 0 0; padding-left: 1rem; }
   .head code { font-weight: 600; }
   .badge { display: inline-block; padding: 0 .4rem; border-radius: 3px; font-size: 12px; font-weight: 600; }
@@ -186,8 +191,14 @@ function tile(need, c) {
 
   const badge = !c.previewed ? h("span", {class: "badge warn"}, "not previewed")
     : c.pass ? null : h("span", {class: "badge fail"}, "fails checks");
+  const cut = c.cutout && h("figure", {class: "cutout" + (c.cutout.pass ? "" : " fail")},
+    link(c.cutout.file, h("img", {src: c.cutout.file, alt: `${c.id} cut out`, loading: "lazy"})),
+    h("figcaption", {}, h("b", {}, c.cutout.pass ? "cut out" : "cut out · the mask check failed"),
+      h("div", {class: "muted"}, `key ${c.cutout.key.join(", ")}`),
+      c.cutout.failures.length ? h("ul", {class: "failures"}, c.cutout.failures.map(f => h("li", {}, f))) : null));
   const origin = c.source === "generated"
-    ? [h("div", {}, "prompt: ", h("q", {}, c.prompt)), h("div", {class: "muted"}, `model ${c.model} · seed ${c.seed}`)]
+    ? [h("div", {}, "prompt: ", h("q", {}, c.prompt)),
+       h("div", {class: "muted"}, `model ${c.model} · seed ${c.seed}` + (c.style ? ` · style ${c.style}` : ""))]
     : [h("div", {}, c.queries.length > 1 ? `found by ${c.queries.length} queries:` : "query:",
          h("ul", {class: "queries"}, c.queries.map(q => h("li", {}, q)))),
        h("div", {class: "muted"}, "photo by ", link(c.creator_url, c.creator), " · ", link(c.licence_url, c.licence),
@@ -199,6 +210,7 @@ function tile(need, c) {
   s.tile = h("article", {class: "tile", "data-key": key, onmousedown: () => focusTile(key, false)},
     h("div", {class: "images"},
       link(c.full, h("img", {class: "thumb", src: c.thumb, alt: c.alt || c.id, loading: "lazy"})),
+      cut,
       c.previews.length ? h("div", {class: "previews"}, c.previews.map(p => preview(c, p))) : null),
     h("div", {class: "meta"},
       h("div", {class: "head"}, h("code", {}, c.id), ` ${c.width}×${c.height} · ${c.provider} `, badge),

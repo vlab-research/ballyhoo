@@ -14,10 +14,11 @@ from pathlib import Path
 import google.auth
 import google.auth.transport.requests
 import httpx
+import numpy as np
 import yaml
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from . import art, candidates as cands
+from . import art, candidates as cands, cutout
 from .providers import Request
 
 TIMEOUT = 120
@@ -72,12 +73,25 @@ def image_bytes(http, provider, request, env, token, sleep):
     return send(http, Request("GET", provider.parse_result(result))).content
 
 
+def write_cutout(directory, candidate, data, style, digest):
+    """Key a drawing out of its ground, beside the file as delivered, and record what the check found."""
+    with Image.open(io.BytesIO(data)) as im:
+        rgba, key = cutout.cut_out(np.asarray(im.convert("RGB")))
+    path = Path(directory) / cands.cutout_file(candidate.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgba, "RGBA").save(path)
+    return cands.with_cutout(candidate, key, cutout.mask_problems(rgba, key), style, digest)
+
+
 def generate(http, provider, prompt, n, seed, width, height, directory, env=None, today=None, sleep=time.sleep,
-             model=None, **options):
+             model=None, style=None, **options):
     """Generate with seeds seed .. seed+n-1, keeping each image as delivered under <directory>/generated/.
 
     Returns (candidates, refusals, errors). A refusal is reported and the other seeds still run;
     an HTTP error or a timeout stops the run, since the next seed would meet it too.
+
+    `style` names the style a drawing was prompted in; a drawing is also cut out of its ground, into
+    <directory>/cutouts/, and a mask check that fails is recorded rather than stopping anything.
     """
     env = os.environ if env is None else env
     token = auth_token(http, provider, env)
@@ -95,12 +109,13 @@ def generate(http, provider, prompt, n, seed, width, height, directory, env=None
             break
         with Image.open(io.BytesIO(data)) as im:
             w, h = im.size
-        c = cands.generated_candidate(provider.NAME, model, prompt, s, hashlib.sha256(data).hexdigest(),
-                                      cands.extension(data), w, h, today or datetime.date.today())
+        digest = hashlib.sha256(data).hexdigest()
+        c = cands.generated_candidate(provider.NAME, model, prompt, s, digest, cands.extension(data), w, h,
+                                      today or datetime.date.today())
         path = Path(directory) / c.full
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        found.append(c)
+        found.append(write_cutout(directory, c, data, style, digest) if style else c)
     return found, refused, errors
 
 

@@ -107,8 +107,11 @@ def run_job(job, provider, directory, http, env, today, sleep, known):
         else:
             found, refused, problems = sourcing.generate(
                 http, provider, job.text, job.n, job.seed, job.width, job.height, directory, env=env, today=today,
-                sleep=sleep, model=job.model, **job.options)
+                sleep=sleep, model=job.model, style=job.style, **job.options)
             record.update(images=len(found), refused=len(refused))
+            if job.drawing:
+                record.update(cut_out=sum(c.cutout is not None for c in found),
+                              mask_failed=sum(1 for c in found if c.cutout and not c.cutout.ok))
             problems = refused + problems
         merged, _ = sourcing.add_candidates(directory, found, http)
         known.update(c.id for c in merged)

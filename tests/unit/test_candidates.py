@@ -2,8 +2,8 @@ import datetime
 
 import pytest
 
-from ballyhoo.candidates import (Candidate, cell_origin, displayed_size, dump, extension, fit, kept_record, load,
-                                 merge, parse_picks, plan_keep, sheet_size, sheets, with_original,
+from ballyhoo.candidates import (Candidate, Cutout, cell_origin, displayed_size, dump, extension, fit, kept_record,
+                                 load, merge, parse_picks, plan_keep, sheet_size, sheets, with_cutout, with_original,
                                  with_search_options)
 from ballyhoo.provenance import problems
 
@@ -90,6 +90,27 @@ def test_a_kept_generated_image_has_no_fetch_date_and_still_needs_a_picker():
     assert found == [] and "fetched" not in record
     assert kept_record(GENERATED, SHA, "  ", TODAY)[1] == [
         "provenance picked needs by (the person who picked it) and on (a date)"]
+
+
+def test_a_drawing_names_its_cut_out_and_records_the_key_the_style_and_the_generation_it_came_from():
+    drawn = with_cutout(GENERATED, (9, 193, 18), ["2 stray specks in the mask"], "pastel-hand", "a" * 64)
+    assert drawn.cutout == Cutout("cutouts/gemini-3f9a0c1d2e4b.png", (9, 193, 18), ("2 stray specks in the mask",))
+    assert drawn.cutout.ok is False and Cutout("f.png", (9, 193, 18)).ok is True
+    assert drawn.image == "cutouts/gemini-3f9a0c1d2e4b.png", "a drawing is previewed and kept as its cut-out"
+    assert GENERATED.image == GENERATED.full == "generated/gemini-3f9a0c1d2e4b.jpg"
+    assert [drawn.provenance[k] for k in ("style", "key_colour", "raw_sha256")] == ["pastel-hand", [9, 193, 18], "a" * 64]
+    assert load(dump([drawn])) == ([drawn], [])
+
+    record, problems = kept_record(drawn, SHA, "A. Author", TODAY)
+    assert problems == [] and record["sha256"] == SHA
+    assert [record[k] for k in ("style", "key_colour", "raw_sha256")] == ["pastel-hand", [9, 193, 18], "a" * 64]
+
+
+def test_a_cut_out_that_does_not_say_what_was_keyed_out_is_an_error():
+    data = dump([with_cutout(GENERATED, (9, 193, 18), [], "pastel-hand", "a" * 64)])
+    assert data["candidates"][0]["cutout"]["mask"] == {"pass": True}
+    del data["candidates"][0]["cutout"]["key"]
+    assert load(data) == ([], ["candidate 1: cutout must name its file and the key colour it was cut out with"])
 
 
 def test_contact_sheets_hold_twenty_in_a_grid_of_five():

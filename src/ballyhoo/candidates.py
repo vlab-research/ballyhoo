@@ -15,6 +15,7 @@ from . import provenance
 FILE = "candidates.yaml"
 THUMBS = "thumbs"
 GENERATED = "generated"
+CUTOUTS = "cutouts"
 ORIGINALS = "originals"
 ROTATED = (5, 6, 7, 8)  # EXIF orientations that turn an image a quarter, so its width and height swap
 THUMB_EDGE = 640   # px, long edge: enough to judge on a review page
@@ -27,6 +28,18 @@ FIELDS = ("id", "width", "height", "full", "preview", "provenance")
 
 
 @dataclass(frozen=True)
+class Cutout:
+    """A drawing with its ground keyed out: the file, the colour keyed, and what the mask check found."""
+    file: str            # relative to the candidates directory
+    key: tuple           # the colour that was keyed out
+    failures: tuple = ()  # what cutout.mask_problems found; a failed check is shown, not acted on
+
+    @property
+    def ok(self):
+        return not self.failures
+
+
+@dataclass(frozen=True)
 class Candidate:
     id: str           # <provider>-<the provider's id>: what picks refer to, the same in every search
     width: int
@@ -35,10 +48,16 @@ class Candidate:
     preview: str      # a smaller image to thumbnail: a URL, or a path relative to the candidates directory
     provenance: dict  # the sidecar, less what keeping adds: sha256, picked, and for stock, fetched
     later_queries: tuple = ()  # searches after the first that found it too: not provenance, but how to tune queries
+    cutout: Cutout | None = None  # a drawing's cut-out, beside the image as it was delivered
 
     @property
     def thumb(self):
         return f"{THUMBS}/{self.id}.jpg"
+
+    @property
+    def image(self):
+        """The image a preview shows and keeping keeps: a drawing's cut-out, else the file as delivered."""
+        return self.cutout.file if self.cutout else self.full
 
     @property
     def query(self):
@@ -76,6 +95,22 @@ def with_original(candidate, ext, width, height):
                    provenance={**candidate.provenance, "download_url": candidate.full})
 
 
+def cutout_file(id_):
+    """Where a drawing's cut-out goes: beside the generated file, never over it."""
+    return f"{CUTOUTS}/{id_}.png"
+
+
+def with_cutout(candidate, key, failures, style, raw_sha256):
+    """A generated drawing once its ground is keyed out.
+
+    The record keeps the style it was drawn in, the colour keyed out, and the digest of the
+    generation itself, so a figure in the art library can be traced back to the bytes the model sent.
+    """
+    return replace(candidate, cutout=Cutout(cutout_file(candidate.id), tuple(key), tuple(failures)),
+                   provenance={**candidate.provenance, "style": style, "key_colour": list(key),
+                               "raw_sha256": raw_sha256})
+
+
 def with_search_options(candidate, options):
     """A candidate found by a search that set provider options: the record keeps them beside the query.
 
@@ -111,7 +146,12 @@ def dump(candidates):
     record's so a person comparing queries can read it off at a glance, and `queries` lists every search
     that found the candidate."""
     return {"candidates": [{"n": n, "id": c.id, **({"query": c.query, "queries": list(c.queries)} if c.query else {}),
-                            **{f: getattr(c, f) for f in FIELDS if f != "id"}, "thumb": c.thumb}
+                            **{f: getattr(c, f) for f in FIELDS if f != "id"},
+                            **({"cutout": {"file": c.cutout.file, "key": list(c.cutout.key),
+                                           "mask": {"pass": c.cutout.ok,
+                                                    **({"failures": list(c.cutout.failures)}
+                                                       if c.cutout.failures else {})}}} if c.cutout else {}),
+                            "thumb": c.thumb}
                            for n, c in enumerate(candidates, 1)]}
 
 
@@ -126,14 +166,20 @@ def load(data):
             errors.append(f"candidate {n}: missing {', '.join(missing)}")
             continue
         query, queries = entry["provenance"].get("query"), entry.get("queries") or []
+        raw = entry.get("cutout")
         if not ID.match(str(entry["id"])):
             errors.append(f"candidate {n}: id {entry['id']!r} is not <provider>-<id>")
         elif queries and (not isinstance(queries, list) or queries[0] != query):
             errors.append(f"candidate {n}: queries must be a list starting with its provenance query, {query!r}")
+        elif raw is not None and not (isinstance(raw, dict) and raw.get("file")
+                                      and isinstance(raw.get("key"), list) and len(raw["key"]) == 3):
+            errors.append(f"candidate {n}: cutout must name its file and the key colour it was cut out with")
         else:
+            cut = raw and Cutout(str(raw["file"]), tuple(int(v) for v in raw["key"]),
+                                 tuple((raw.get("mask") or {}).get("failures") or ()))
             found.append(Candidate(str(entry["id"]), int(entry["width"]), int(entry["height"]),
                                    str(entry["full"]), str(entry["preview"]), dict(entry["provenance"]),
-                                   tuple(queries[1:])))
+                                   tuple(queries[1:]), cut or None))
     return found, errors
 
 

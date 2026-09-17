@@ -1,5 +1,6 @@
 """`ballyhoo source`: briefs through the fake provider and a mock transport. No network, no browser."""
 import datetime
+import hashlib
 
 import pytest
 import yaml
@@ -153,6 +154,59 @@ ma-man:
     assert [(c.width, c.height) for c in small] == [(400, 400), (400, 400)]
     with Image.open(run / "ma-man" / small[0].full) as im:
         assert im.size == (400, 400)
+
+
+DRAWINGS = """
+styles:
+  pastel-hand:
+    style: The picture is hand drawn, extremely detailed, pastel palette.
+    framing: One large figure, waist up.
+na-woman:
+  need: A woman who reads as North African.
+  n: 2
+  generate:
+    fake: {style: pastel-hand, subject: 'figure: a woman in her fifties.'}
+thin:
+  need: A woman.
+  n: 1
+  generate:
+    fake: {style: pastel-hand, subject: 'hollow: a woman in her fifties.'}
+"""
+
+
+def test_a_drawing_is_cut_out_beside_the_generation_and_the_candidate_records_the_key_and_the_mask_check(
+        sent, study, capsys):
+    path = study(PREVIEW + DRAWINGS)
+    assert cli.main(["source", str(path), "--seed", "5"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert [line.split(" in ")[0] for line in out[:2]] == [
+        "done  na-woman/fake generate: 2 images, 0 refused, 2 cut out",
+        "done  thin/fake generate: 1 images, 0 refused, 1 cut out (1 failed the mask check)"]
+
+    run = path.parent / "runs" / f"{TODAY}-1"
+    need = run / "na-woman"
+    found, errors = candidates.load(yaml.safe_load((need / "candidates.yaml").read_text()))
+    assert errors == [] and len(found) == 2, "two seeds draw the figure in two places, so two candidates"
+    drawn = found[0]
+    assert drawn.cutout.ok and drawn.image == drawn.cutout.file == f"cutouts/{drawn.id}.png"
+    assert drawn.cutout.key == (10, 200, 20)
+    assert [drawn.provenance[k] for k in ("style", "key_colour")] == ["pastel-hand", [10, 200, 20]]
+    assert drawn.provenance["prompt"].endswith(
+        "The picture is hand drawn, extremely detailed, pastel palette. One large figure, waist up. "
+        "The whole background is one completely flat, solid chroma-key green, the same green in every corner, with "
+        "no shadow, gradient, scenery, frame or border, and no light or glow falling on the green.")
+
+    raw = (need / drawn.full).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == drawn.provenance["raw_sha256"], "the bytes as delivered, untouched"
+    with Image.open(need / drawn.cutout.file) as im:
+        assert (im.mode, im.size) == ("RGBA", (1080, 1080))
+
+    [thin], _ = candidates.load(yaml.safe_load((run / "thin" / "candidates.yaml").read_text()))
+    assert thin.cutout.failures == ("99% of the image is transparent (expected 5% to 95%)",)
+    manifest = yaml.safe_load((run / "manifest.yaml").read_text())
+    assert [(r["style"], r["cut_out"], r["mask_failed"]) for r in manifest["requests"]] == [
+        ("pastel-hand", 2, 0), ("pastel-hand", 1, 1)]
+    assert manifest["errors"] == [], "a mask check a person must look at is not a failed run"
 
 
 def test_a_second_run_gets_a_new_folder_and_leaves_the_first_alone(sent, study, capsys):

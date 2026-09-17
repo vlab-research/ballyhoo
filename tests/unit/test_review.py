@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from ballyhoo.candidates import Candidate
+from ballyhoo.candidates import Candidate, Cutout
 from ballyhoo.review import page, page_data, summary, summary_lines
 from ballyhoo.verdicts import Verdict, Verdicts
 
@@ -118,6 +118,22 @@ def test_each_candidate_carries_its_files_checks_source_and_verdicts_with_the_ag
                                       "failures": ["TimeoutError: slow"]}]
     assert (generated["queries"], generated["prompt"], generated["model"], generated["seed"]) == (
         [], "A woman in her fifties.", "gemini-3.1-flash-image", 7)
+
+
+DRAWN = Candidate("gemini-def", 1080, 1080, "generated/gemini-def.png", "generated/gemini-def.png",
+                  {"source": "generated", "provider": "gemini", "model": "gemini-3.1-flash-image",
+                   "prompt": "A woman in her fifties. Hand drawn.", "seed": 8, "generated": ON,
+                   "style": "pastel-hand", "key_colour": [9, 193, 18], "raw_sha256": "a" * 64},
+                  cutout=Cutout("cutouts/gemini-def.png", (9, 193, 18), ("2 stray specks in the mask",)))
+
+
+def test_a_drawing_shows_its_cut_out_the_colour_keyed_out_and_what_the_mask_check_found():
+    [drawn] = page_data("r", {"na-woman": "A woman."}, {"na-woman": [DRAWN]}, {}, None, None,
+                        editable=True)["needs"][0]["candidates"]
+    assert drawn["cutout"] == {"file": "na-woman/cutouts/gemini-def.png", "key": [9, 193, 18], "pass": False,
+                               "failures": ["2 stray specks in the mask"]}
+    assert (drawn["style"], drawn["full"]) == ("pastel-hand", "na-woman/generated/gemini-def.png")
+    assert data()["needs"][0]["candidates"][0]["cutout"] is None, "a photograph has no cut-out"
 
 
 def test_the_agents_verdicts_never_stand_in_for_a_persons():

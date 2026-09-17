@@ -83,7 +83,10 @@ def _candidate(need, c, checked, verdicts, agent):
         "source": record.get("source"), "provider": record.get("provider"),
         "queries": list(c.queries), "prompt": record.get("prompt"),
         "alt": record.get("alt") or record.get("title"),  # Pexels describes a photo in alt, Openverse in title
-        **{k: record.get(k) for k in ("creator", "creator_url", "page_url", "licence", "licence_url", "model", "seed")},
+        **{k: record.get(k) for k in ("creator", "creator_url", "page_url", "licence", "licence_url", "model", "seed",
+                                      "style")},
+        "cutout": c.cutout and {"file": _path(need, c.cutout.file), "key": list(c.cutout.key),
+                                "pass": c.cutout.ok, "failures": list(c.cutout.failures)},
         "previewed": checked is not None,
         "pass": checked.get("pass") if checked else None,
         "previews": [{"template": template, "status": p.get("status"),
