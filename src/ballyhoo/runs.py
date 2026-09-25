@@ -298,6 +298,27 @@ def served_page(root, single, providers):
     return review.page(TEMPLATE.read_text(), data)
 
 
+def summaries(runs_dir, providers, name=verdicts.FILE):
+    """Every run in a runs directory as review.runs_summary_lines takes it, with its verdicts.yaml, or with
+    `name` its agent-verdicts.yaml. A run that cannot be read carries its errors instead."""
+    result = []
+    for run in run_folders(runs_dir):
+        status = run_state(run)["status"]
+        entry = {"name": run.name, "status": status, "errors": [], "needs": [], "found": {}, "verdicts": None}
+        if status != "sourcing":
+            try:
+                needs, _, found, _, errors = read(run, providers)
+                rated, problems = read_verdicts(run, found, name) if not errors else (None, [])
+            except (OSError, yaml.YAMLError) as e:  # a file being written as the runs are read
+                errors, problems = [f"{run}: {e}"], []
+            if errors or problems:
+                entry["errors"] = errors + problems
+            else:
+                entry.update(needs=[n.name for n in needs], found=candidate_ids(found), verdicts=rated)
+        result.append(entry)
+    return result
+
+
 def review_page(run, r):
     """The read-only review.html written into a run, showing that run alone."""
     s = run_state(run)

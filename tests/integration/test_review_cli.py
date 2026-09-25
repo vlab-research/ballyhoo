@@ -369,7 +369,7 @@ def test_review_summary_prints_the_tallies_of_either_verdicts_file(run, capsys):
         cli.main(["review", str(run), "--agent"])
 
 
-def test_review_serves_the_runs_next_to_a_brief_and_summarises_only_one_run(tmp_path, monkeypatch, capsys):
+def test_review_serves_the_runs_next_to_a_brief(tmp_path, monkeypatch, capsys):
     brief = tmp_path / "brief.yaml"
     brief.write_text(BRIEF)
     served = []
@@ -377,11 +377,70 @@ def test_review_serves_the_runs_next_to_a_brief_and_summarises_only_one_run(tmp_
     assert cli.main(["review", str(brief)]) == 0
     assert served == [tmp_path / "runs"] and (tmp_path / "runs").is_dir()
     assert cli.main(["review", str(tmp_path / "runs")]) == 0
-    for summary in (["review", str(brief), "--summary"], ["review", str(tmp_path / "runs"), "--summary"],
-                    ["review", str(tmp_path / "nothing")]):
-        with pytest.raises(SystemExit):
-            cli.main(summary)
+    with pytest.raises(SystemExit):
+        cli.main(["review", str(tmp_path / "nothing")])
     capsys.readouterr()
+
+
+def test_review_summary_of_a_brief_names_every_runs_candidates_with_their_verdicts_and_notes(sent, tmp_path, capsys):
+    brief = tmp_path / "study" / "brief.yaml"
+    brief.parent.mkdir()
+    brief.write_text(BRIEF)
+    assert cli.main(["review", str(brief), "--summary"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"0 runs in {brief.parent / 'runs'}, newest first, with each one's verdicts.yaml"]
+    assert not (brief.parent / "runs").exists(), "a summary makes nothing"
+
+    for _ in range(2):
+        cli.main(["source", str(brief), "--seed", "1"])
+    runs = brief.parent / "runs"
+    first, second = (f"{TODAY.isoformat()}-{n}" for n in (1, 2))
+    for need in ("ke-woman", "ma-man"):
+        (runs / second / need / "checks.yaml").write_text(yaml.safe_dump(CHECKS))
+    (runs / second / "verdicts.yaml").write_text(yaml.safe_dump({
+        "rated_by": "A. Author", "rated_on": TODAY,
+        "needs": {"ke-woman": {"fake-bright-3": {"verdict": "drop", "issues": ["age"]},
+                               "fake-bright-4": {"verdict": "keep", "note": "Warm."}}},
+        "notes": {"ma-man": "None of these look 50."}}))
+    capsys.readouterr()
+    assert cli.main(["review", str(brief), "--summary"]) == 0
+    summary = capsys.readouterr().out.splitlines()
+    assert summary == [
+        f"2 runs in {runs}, newest first, with each one's verdicts.yaml",
+        f"{second}: rated by A. Author on {TODAY}",
+        "  ke-woman: 3 candidates: 1 keep, 1 drop, 1 unrated",
+        "    2.3 keep; note: Warm.",
+        "    2.2 drop; issues: age",
+        "    unrated: 2.1",
+        "  ma-man: 2 candidates: 2 unrated",
+        "    note: None of these look 50.",
+        "    unrated: 2.4, 2.5",
+        "  down: no candidates",
+        f"{first}: not rated; previewing, checks not written yet",
+        "  ke-woman: 3 candidates: 3 unrated",
+        "    unrated: 1.1 to 1.3",
+        "  ma-man: 2 candidates: 2 unrated",
+        "    unrated: 1.4, 1.5",
+        "  down: no candidates",
+    ]
+    assert cli.main(["review", str(runs), "--summary"]) == 0
+    assert capsys.readouterr().out.splitlines() == summary
+
+    (runs / first / "agent-verdicts.yaml").write_text(yaml.safe_dump({"rated_by": AGENT, "rated_on": TODAY, "needs": {
+        "ma-man": {"fake-6d6f64c7e81a": {"verdict": "maybe"}}}}))
+    (runs / second / "verdicts.yaml").write_text("rated_by: [")
+    assert cli.main(["review", str(runs), "--summary", "--agent"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[:3] == [f"2 runs in {runs}, newest first, with each one's agent-verdicts.yaml",
+                         f"{second}: not rated", "  ke-woman: 3 candidates: 3 unrated"]
+    assert lines[7:13] == [f"{first}: rated by {AGENT} on {TODAY}; previewing, checks not written yet",
+                           "  ke-woman: 3 candidates: 3 unrated", "    unrated: 1.1 to 1.3",
+                           "  ma-man: 2 candidates: 1 maybe, 1 unrated", "    1.4 maybe", "    unrated: 1.5"]
+    assert cli.main(["review", str(runs), "--summary"]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1] == f"{second}: cannot be read"
+    assert lines[2].startswith(f"  error: {runs / second / 'verdicts.yaml'}: while parsing")
+    assert f"{first}: not rated; previewing, checks not written yet" in lines, "one broken run hides no other"
 
 
 @pytest.mark.browser

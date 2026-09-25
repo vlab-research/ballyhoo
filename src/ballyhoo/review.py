@@ -5,8 +5,8 @@ and checks.yaml, verdicts.yaml and agent-verdicts.yaml, and lists the files in
 each run with their modification times. This module orders the runs, says which
 have finished previewing and what each asked that the run before did not, digests
 the runs' state so the page can tell a new round has arrived, and builds the
-page's data, the summary of verdicts per need, provider and query or prompt, and
-the page itself from the template. runs.py writes the page into a run;
+page's data, the summary of verdicts per need, provider and query or prompt, the
+summary of every run that an agent reads, and the page itself from the template. runs.py writes the page into a run;
 review_server.py serves it for a run or a directory of runs.
 """
 import difflib
@@ -175,6 +175,69 @@ def summary_lines(summary):
             for kind, label in (("queries", "query"), ("prompts", "prompt")):
                 lines += [f"    {label} {text!r}: {_tally(counts)}" for text, counts in p.get(kind, {}).items()]
     return lines
+
+
+def spans(prefix, numbers):
+    """Candidates' names from their numbers in a run, three or more in a row as the first and last:
+    3.1 to 3.3, 3.5, 3.7 to 3.9."""
+    groups = []
+    for n in numbers:
+        if groups and n == groups[-1][-1] + 1:
+            groups[-1].append(n)
+        else:
+            groups.append([n])
+    return ", ".join(f"{prefix}.{g[0]} to {prefix}.{g[-1]}" if len(g) > 2 else ", ".join(f"{prefix}.{n}" for n in g)
+                     for g in groups)
+
+
+def _verdict_line(name, v):
+    return (f"{name} {v.verdict}" + (f"; issues: {', '.join(v.issues)}" if v.issues else "")
+            + (f"; note: {v.note}" if v.note else ""))
+
+
+def _run_summary(r, prefix):
+    v = r["verdicts"]
+    if r["errors"]:
+        head = "cannot be read"
+    elif r["status"] == "sourcing":
+        head = "sourcing, not ready to rate"
+    else:
+        head = (f"rated by {v.rated_by} on {v.rated_on}" if v else "not rated") + (
+            "; previewing, checks not written yet" if r["status"] == "previewing" else "")
+    lines = [f"{r['name']}: {head}"] + [f"  error: {e}" for e in r["errors"]]
+    numbered = names.numbers([(need, r["found"].get(need, [])) for need in r["needs"]])
+    for need in r["needs"]:
+        ids = r["found"].get(need, [])
+        if not ids:
+            lines.append(f"  {need}: no candidates")
+            continue
+        rated = {c: v.get(need, c) if v else None for c in ids}
+        counts = {k: sum(e is not None and e.verdict == k for e in rated.values()) for k in VERDICTS}
+        unrated = [numbered[need, c] for c in ids if rated[c] is None]
+        tally = [f"{n} {k}" for k, n in counts.items() if n] + ([f"{len(unrated)} unrated"] if unrated else [])
+        lines.append(f"  {need}: {len(ids)} candidate{'s' if len(ids) > 1 else ''}: {', '.join(tally)}")
+        if v and need in v.notes:
+            lines.append(f"    note: {v.notes[need]}")
+        for verdict in VERDICTS:
+            lines += [f"    {_verdict_line(f'{prefix}.{numbered[need, c]}', e)}" for c, e in rated.items()
+                      if e is not None and e.verdict == verdict]
+        if unrated:
+            lines.append(f"    unrated: {spans(prefix, unrated)}")
+    return lines
+
+
+def runs_summary_lines(runs):
+    """Every run's verdicts as `ballyhoo review BRIEF --summary` prints them, for an agent to read: newest
+    run first, who rated it and when, and per need its tallies, its note, and each candidate by name
+    with its verdict, keeps first, then maybes and drops, then the unrated.
+
+    Each of `runs` is {"name", "status", "errors", "needs", "found", "verdicts"}: `needs` are the run's
+    needs in brief order, `found` maps each need with candidates to their ids in candidates.yaml order,
+    and `verdicts` is the run's Verdicts or None. A run with errors shows them instead.
+    """
+    by_name = {r["name"]: r for r in runs}
+    prefixes = names.prefixes(list(by_name))
+    return [line for name in run_order(list(by_name)) for line in _run_summary(by_name[name], prefixes[name])]
 
 
 def _path(folder, ref):

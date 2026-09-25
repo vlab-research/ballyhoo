@@ -93,8 +93,10 @@ def main(argv=None):
                    help="a brief (its runs/), a directory of runs, or one run folder that source made")
     w.add_argument("--port", type=int, default=0, help="the port to serve on (default 0: any free port)")
     w.add_argument("--summary", action="store_true",
-                   help="print keep, maybe and drop counts per need, provider and query or prompt, and exit")
-    w.add_argument("--agent", action="store_true", help=f"with --summary: count {verdicts.AGENT_FILE} instead")
+                   help="print the verdicts and exit: for a brief or runs directory, every run's, newest first, "
+                        "each candidate by name with its notes and each need's note; for a run, keep, maybe and "
+                        "drop counts per need, provider and query or prompt")
+    w.add_argument("--agent", action="store_true", help=f"with --summary: {verdicts.AGENT_FILE} instead")
     w.set_defaults(run=run_review)
 
     args = ap.parse_args(argv)
@@ -260,7 +262,7 @@ def run_review(ap, args):
         ap.error(f"{args.folder}: no such brief, runs directory or run folder")
     if not runs.is_run(args.folder):
         if args.summary:
-            ap.error("--summary takes one run folder")
+            return summarise_runs(args.folder.parent / runs.RUNS if args.folder.is_file() else args.folder, args.agent)
         if args.folder.is_file():
             args.folder = args.folder.parent / runs.RUNS
             args.folder.mkdir(exist_ok=True)  # where source puts the brief's runs, so the page shows them as they come
@@ -281,6 +283,15 @@ def run_review(ap, args):
             print(line)
         return 0
     return serve(args.folder, args.port, str(args.folder), args.folder / verdicts.FILE)
+
+
+def summarise_runs(runs_dir, agent):
+    name = verdicts.AGENT_FILE if agent else verdicts.FILE
+    found = runs.summaries(runs_dir, PROVIDERS, name) if runs_dir.is_dir() else []
+    print(f"{len(found)} run{'' if len(found) == 1 else 's'} in {runs_dir}, newest first, with each one's {name}")
+    for line in review.runs_summary_lines(found):
+        print(line)
+    return 1 if any(r["errors"] for r in found) else 0
 
 
 def serve(folder, port, what, saves):

@@ -375,7 +375,8 @@ against its need. `keep --verdicts` then keeps what they rated keep.
 
     uv run ballyhoo review brief.yaml                     # every run in runs/ next to the brief, or name a runs directory
     uv run ballyhoo review runs/2026-09-14-1              # one run; either prints the page's address; --port N (default: any free port)
-    uv run ballyhoo review runs/2026-09-14-1 --summary    # print the counts below and exit; --agent counts agent-verdicts.yaml
+    uv run ballyhoo review brief.yaml --summary           # every run's verdicts and notes, newest first, and exit
+    uv run ballyhoo review runs/2026-09-14-1 --summary    # one run's counts (below), and exit; --agent reads agent-verdicts.yaml
     uv run ballyhoo keep runs/2026-09-14-1 --verdicts --need ea-woman --to ../recruitment-creative/scenes
     uv run ballyhoo keep brief.yaml 3.4 3.7=couple-park --to ../recruitment-creative/scenes --picked-by "<who picked>"
 
@@ -462,11 +463,35 @@ judged against each.
 **Agent verdicts.** An agent may rate a run too, in `agent-verdicts.yaml`: the same
 format, with `rated_by` naming the agent and model, such as `claude-code
 (claude-opus-5)`. The page shows each one as a small hint beside the person's controls,
-never filled into them, and `review --summary --agent` counts them. `keep` never takes
+never filled into them, and `review --summary --agent` summarises them. `keep` never takes
 picks from them: a pick names the person who made it.
 
-**The summary** counts, per need, per provider and per query or prompt, the candidates
-found, how many are keep (with the keep rate), maybe, drop and unrated, and each issue.
+**The summary of a brief's runs** (`review BRIEF|RUNS --summary`) is what an agent reads to
+know where the author is: every run, newest first, with who rated it and when, and per
+need its tallies, its note, and each candidate by name with its verdict, issues and note,
+keeps first, then maybes and drops, then the unrated. A run not yet rated, still
+sourcing or previewing, or that cannot be read says so; the exit status is non-zero
+when any cannot be read.
+
+```
+2 runs in study/runs, newest first, with each one's verdicts.yaml
+2026-09-24-2: rated by A. Author on 2026-09-24
+  ea-woman: 3 candidates: 1 keep, 1 drop, 1 unrated
+    note: Less pensive.
+    2.3 keep; note: Warm.
+    2.2 drop; issues: age
+    unrated: 2.1
+  na-woman: no candidates
+2026-09-24-1: not rated
+  ea-woman: 3 candidates: 3 unrated
+    unrated: 1.1 to 1.3
+  na-woman: 2 candidates: 2 unrated
+    unrated: 1.4, 1.5
+```
+
+**The summary of one run** (`review RUN --summary`) counts, per need, per provider and
+per query or prompt, the candidates found, how many are keep (with the keep rate),
+maybe, drop and unrated, and each issue.
 A photo that several queries found counts once for its need and provider, and once for
 each of those queries.
 
@@ -547,9 +572,9 @@ a pure function, and the browser only measures and takes screenshots.
 | `candidates.py` | the candidates file, ids, contact-sheet layout, and what keeping a pick writes |
 | `brief.py` | what a brief sources: validates it, expands it into jobs, estimates their cost, checks every request can be built, names runs |
 | `preview.py` | what a preview renders: which candidate goes into which template, file names, whether a template has an `<img id="scene">`, and `checks.yaml` |
-| `verdicts.py` | whether a verdicts map is valid for a run, and what `keep --verdicts` keeps |
+| `verdicts.py` | whether a verdicts map is valid for a run, how one mark from the page merges into it, and what `keep --verdicts` keeps |
 | `names.py` | run names and their order, and candidates' names (`3.4`): numbering, the short form a page shows, and which candidate a name picks |
-| `review.py` | what the review page shows, the summary of verdicts per need, provider and query or prompt, and the page from its template (`review.html`) |
+| `review.py` | what the review page shows, the summary of verdicts per need, provider and query or prompt, the summary of every run for an agent, and the page from its template (`review.html`) |
 | `providers/` | each API's requests, candidates or images from its replies, and its prices |
 | `render.py` | nothing; it is the shell. Reads files, drives Chrome (putting a candidate into a slot when asked), writes PNGs |
 | `art.py` | nothing; the shell for provenance. Hashes images, reads and writes sidecars |
@@ -582,8 +607,8 @@ a pure function, and the browser only measures and takes screenshots.
 - `tests/integration/test_review_cli.py` runs the review server on an ephemeral port, on a
   run sourced from the fake provider, and drives it with httpx: the page, the run's files
   and nothing outside it, a save refused with every problem, a save written. It then runs
-  `keep --verdicts` and its refusals, and `review --summary`. One browser test rates on the
-  page, saves, and checks the read-only copy.
+  `keep --verdicts` and its refusals, and `review --summary` of a run and of a brief's
+  runs. One browser test rates on the page, notes a need, and checks the read-only copy.
 - `tests/integration/test_smoke_brief.py` checks that the committed smoke brief parses, its
   templates exist, its Pexels requests build, and no need or query asks for anyone older
   than middle age. No network.

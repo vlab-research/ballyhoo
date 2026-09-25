@@ -5,7 +5,7 @@ import pytest
 
 from ballyhoo.candidates import Candidate, Cutout
 from ballyhoo.review import (asks, changes, is_run, newest, page, page_data, run_data, run_name, run_order, run_status,
-                             state, summary, summary_lines, word_diff)
+                             runs_summary_lines, spans, state, summary, summary_lines, word_diff)
 from ballyhoo.verdicts import Verdict, Verdicts
 
 ON = datetime.date(2026, 9, 14)
@@ -280,3 +280,60 @@ def test_changes_name_new_and_gone_needs_and_what_each_kept_need_asks_differentl
         {"need": "d", "change": "new"},
         {"need": "b", "change": "gone"}]
     assert changes(after, after) == []
+
+
+def summarised(name, verdicts=None, status="ready", errors=(), needs=("ke-woman", "ma-man", "down"), found=None):
+    return {"name": name, "status": status, "errors": list(errors), "needs": list(needs),
+            "found": {"ke-woman": ["pexels-1", "pexels-2", "pexels-3", "gemini-abc"], "ma-man": ["openverse-x1"]}
+            if found is None else found, "verdicts": verdicts}
+
+
+def test_names_in_a_row_are_given_by_the_first_and_last():
+    assert spans("3", [1, 2, 3, 5, 7, 8, 10, 11, 12, 13]) == "3.1 to 3.3, 3.5, 3.7, 3.8, 3.10 to 3.13"
+    assert spans("2026-09-24-3", [4]) == "2026-09-24-3.4"
+
+
+def test_the_runs_summary_names_each_candidate_with_its_verdict_keeps_first_and_each_needs_note():
+    rated = Verdicts("A. Author", ON, {"ke-woman": {"pexels-2": Verdict("drop", ("text", "age")),
+                                                    "pexels-1": Verdict("keep", ("crop",), "Tight."),
+                                                    "gemini-abc": Verdict("maybe")}},
+                     {"ke-woman": "Less pensive.", "ma-man": "None of these look 50."})
+    assert runs_summary_lines([summarised("2026-09-14-1"), summarised("2026-09-14-2", rated)]) == [
+        "2026-09-14-2: rated by A. Author on 2026-09-14",
+        "  ke-woman: 4 candidates: 1 keep, 1 maybe, 1 drop, 1 unrated",
+        "    note: Less pensive.",
+        "    2.1 keep; issues: crop; note: Tight.",
+        "    2.4 maybe",
+        "    2.2 drop; issues: text, age",
+        "    unrated: 2.3",
+        "  ma-man: 1 candidate: 1 unrated",
+        "    note: None of these look 50.",
+        "    unrated: 2.5",
+        "  down: no candidates",
+        "2026-09-14-1: not rated",
+        "  ke-woman: 4 candidates: 4 unrated",
+        "    unrated: 1.1 to 1.4",
+        "  ma-man: 1 candidate: 1 unrated",
+        "    unrated: 1.5",
+        "  down: no candidates",
+    ]
+
+
+def test_the_runs_summary_says_which_runs_are_not_ready_or_cannot_be_read_and_names_runs_in_full_where_needed():
+    lines = runs_summary_lines([
+        summarised("2026-09-13-1", needs=["ma-man"]),
+        summarised("2026-09-14-1", status="previewing", needs=["ma-man"]),
+        summarised("2026-09-14-2", status="sourcing", needs=[], found={}),
+        summarised("2026-09-14-3", errors=["verdicts.yaml: rated_on must be a date"], needs=[], found={})])
+    assert lines == [
+        "2026-09-14-3: cannot be read",
+        "  error: verdicts.yaml: rated_on must be a date",
+        "2026-09-14-2: sourcing, not ready to rate",
+        "2026-09-14-1: not rated; previewing, checks not written yet",
+        "  ma-man: 1 candidate: 1 unrated",
+        "    unrated: 2026-09-14-1.1",
+        "2026-09-13-1: not rated",
+        "  ma-man: 1 candidate: 1 unrated",
+        "    unrated: 2026-09-13-1.1",
+    ]
+    assert runs_summary_lines([]) == []
