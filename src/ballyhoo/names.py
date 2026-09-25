@@ -49,6 +49,19 @@ def parse(name):
     return (m[1], int(m[2])) if m and int(m[2]) > 0 else None
 
 
+def parse_picks(args):
+    """`<name>` or `<name>=<file name>` arguments. Returns ([(name, file name or None)], errors)."""
+    picks, errors = [], []
+    for arg in args:
+        name, eq, file = arg.partition("=")
+        if parse(name) is None or (eq and not file):
+            errors.append(f"{arg}: expected a candidate's name, such as 3.4 or 2026-09-24-3.4, "
+                          "or <name>=<file name>")
+        else:
+            picks.append((name, file or None))
+    return picks, errors
+
+
 def pick_run(name, runs, single):
     """The run and number a name picks among `runs`. Returns ((run, number) or None, error or None).
 

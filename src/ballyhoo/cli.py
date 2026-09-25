@@ -4,7 +4,7 @@ import re
 import secrets
 from pathlib import Path
 
-from . import art, brief, candidates, provenance, render, review, review_server, runs, sourcing, verdicts
+from . import art, brief, candidates, names, provenance, render, review, review_server, runs, sourcing, verdicts
 from .providers import MissingCredential, fal, firefly, gemini, openverse, pexels
 
 PROVIDERS = {p.NAME: p for p in (fal, firefly, gemini, openverse, pexels)}
@@ -59,10 +59,13 @@ def main(argv=None):
     g.set_defaults(run=run_generate)
 
     k = sub.add_parser("keep", help="copy picked candidates into the art library with their provenance",
-                       usage="ballyhoo keep CANDIDATES PICK... --to DIR --picked-by NAME\n"
+                       usage="ballyhoo keep CANDIDATES ID... --to DIR --picked-by NAME\n"
+                             "       ballyhoo keep BRIEF|RUNS|RUN NAME... --to DIR --picked-by NAME\n"
                              "       ballyhoo keep RUN --verdicts --need NEED --to DIR")
-    k.add_argument("path", metavar="CANDIDATES|RUN", type=Path, help="a candidates.yaml; with --verdicts, a run folder")
-    k.add_argument("picks", nargs="*", help="<candidate id> or <candidate id>=<file name>")
+    k.add_argument("path", metavar="CANDIDATES|BRIEF|RUNS|RUN", type=Path,
+                   help="a candidates.yaml, whose picks are ids; a brief, runs directory or run folder, whose picks "
+                        "are names such as 3.4 (in a run folder, 4 too); with --verdicts, a run folder")
+    k.add_argument("picks", nargs="*", help="<candidate id or name> or <candidate id or name>=<file name>")
     k.add_argument("--to", type=Path, required=True, help="the art directory, e.g. scenes/")
     k.add_argument("--picked-by", help="the person who picked them")
     k.add_argument("--verdicts", action="store_true",
@@ -310,6 +313,10 @@ def run_keep(ap, args):
             ap.error("name at least one pick, or keep what a run's verdicts rate keep with --verdicts --need")
         if args.picked_by is None or not args.picked_by.strip():
             ap.error("--picked-by must name the person who picked")
+        if not args.path.exists():
+            ap.error(f"{args.path}: no such candidates file, brief, runs directory or run folder")
+        if args.path.is_dir() or args.path.name != candidates.FILE:
+            return keep_named(args)
         picks, errors = candidates.parse_picks(args.picks)
         written = []
         if picks:
@@ -318,6 +325,19 @@ def run_keep(ap, args):
             errors += keep_errors
     for path in written:
         print(f"ok    {path}")
+    for e in errors:
+        print(f"FAIL  {e}")
+    return 1 if errors else 0
+
+
+def keep_named(args):
+    picks, errors = names.parse_picks(args.picks)
+    written = []
+    if not errors:
+        with sourcing.client() as http:
+            written, errors = runs.keep_named(args.path, picks, args.to, args.picked_by, PROVIDERS, http)
+    for name, run, need, id_, path in written:
+        print(f"ok    {path}  ({name}: {run.name}/{need}/{id_})")
     for e in errors:
         print(f"FAIL  {e}")
     return 1 if errors else 0

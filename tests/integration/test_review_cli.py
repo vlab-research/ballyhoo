@@ -6,6 +6,7 @@ need that is "previewed" has a checks.yaml written by hand.
 import contextlib
 import datetime
 import http.client
+import shutil
 import threading
 from pathlib import Path
 
@@ -271,6 +272,42 @@ def test_keep_still_takes_picks_named_on_the_command_line(run, tmp_path, capsys)
                      "--to", str(scenes), "--picked-by", "B. Person"]) == 0
     assert capsys.readouterr().out.splitlines() == [f"ok    {scenes / 'ke-woman-village.jpg'}"]
     assert yaml.safe_load(art.sidecar(scenes / "ke-woman-village.jpg").read_text())["picked"]["by"] == "B. Person"
+
+
+def test_keep_takes_candidates_by_name_from_a_run_its_runs_directory_or_its_brief(run, tmp_path, capsys):
+    """The run's candidates are named 1.1 to 1.3 (ke-woman: fake-bright-2 to -4) and 1.4, 1.5 (ma-man)."""
+    scenes, brief = tmp_path / "scenes", run.parents[1] / "brief.yaml"
+    keep = ["--to", str(scenes), "--picked-by", "B. Person"]
+
+    assert cli.main(["keep", str(brief), "1.2", "1.4=ma-man-light"] + keep) == 0
+    [bright, drawn] = capsys.readouterr().out.splitlines()
+    assert bright == f"ok    {scenes / 'fake-bright-3.jpg'}  (1.2: {run.name}/ke-woman/fake-bright-3)"
+    assert drawn.startswith(f"ok    {scenes / 'ma-man-light'}.") and f"  (1.4: {run.name}/ma-man/" in drawn
+    assert (scenes / "fake-bright-3.jpg").read_bytes() == (run / "ke-woman" / "originals" / "fake-bright-3.jpg").read_bytes()
+    record = yaml.safe_load(art.sidecar(scenes / "fake-bright-3.jpg").read_text())
+    assert (record["picked"]["by"], record["fetched"], record["query"]) == ("B. Person", TODAY, "bright village")
+
+    assert cli.main(["keep", str(run.parent), f"{run.name}.3"] + keep) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"ok    {scenes / 'fake-bright-4.jpg'}  ({run.name}.3: {run.name}/ke-woman/fake-bright-4)"]
+    assert cli.main(["keep", str(run), "1"] + keep) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"ok    {scenes / 'fake-bright-2.jpg'}  (1: {run.name}/ke-woman/fake-bright-2)"]
+
+    cli.main(["source", str(brief), "--seed", "1"])
+    capsys.readouterr()
+    shutil.copytree(run, run.parent / "2000-01-01-1")
+    kept = files(scenes)
+    assert cli.main(["keep", str(run.parent), "1.5", "2.9", "3.1", "4"] + keep) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        f"FAIL  1.5: runs {run.name}, 2000-01-01-1 are all numbered 1; name one, such as {run.name}.5",
+        f"FAIL  2.9: {TODAY.isoformat()}-2 has candidates {TODAY.isoformat()}-2.1 to {TODAY.isoformat()}-2.5",
+        f"FAIL  3.1: no run 3 among {TODAY.isoformat()}-2, {run.name}, 2000-01-01-1",
+        "FAIL  4: name the run too, such as 3.4"]
+    assert files(scenes) == kept, "one name that picks nothing keeps nothing"
+    with pytest.raises(SystemExit):
+        cli.main(["keep", str(tmp_path / "nothing"), "1.1"] + keep)
+    capsys.readouterr()
 
 
 def test_review_summary_prints_the_tallies_of_either_verdicts_file(run, capsys):

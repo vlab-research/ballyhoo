@@ -377,6 +377,7 @@ against its need. `keep --verdicts` then keeps what they rated keep.
     uv run ballyhoo review runs/2026-09-14-1              # one run; either prints the page's address; --port N (default: any free port)
     uv run ballyhoo review runs/2026-09-14-1 --summary    # print the counts below and exit; --agent counts agent-verdicts.yaml
     uv run ballyhoo keep runs/2026-09-14-1 --verdicts --need ea-woman --to ../recruitment-creative/scenes
+    uv run ballyhoo keep brief.yaml 3.4 3.7=couple-park --to ../recruitment-creative/scenes --picked-by "<who picked>"
 
 The page shows runs newest first, the newest open and older ones folded, each headed
 with its needs and what it asked that the run before did not. The server reads the
@@ -398,6 +399,13 @@ which restarts in every need). Run numbers restart each day, so the full name is
 `2026-09-24-3.4`; the page shows it in full wherever another run it shows is also
 numbered 3. A name never changes once the run is sourced, so the author and the agent
 can use it in the thread.
+
+**`keep BRIEF|RUNS|RUN NAME... --to DIR --picked-by NAME`** keeps candidates by name,
+each as `<name>` or `<name>=<file name>`, like picks by id. Given a brief (its `runs/`) or
+a runs directory, a name is `3.4` or `2026-09-24-3.4`; `3.4` where two days both have a
+run 3 is an error naming them, as is a name no run has. Given a run folder, `4` names its
+fourth candidate. If any name picks nothing, nothing is kept. Each kept file is printed
+with the name, run, need and id it resolved to.
 
 - Rate with keep, maybe or drop, the issue boxes and a note. `k`, `m` and `d` rate the
   candidate last clicked, and the arrow keys move between candidates.

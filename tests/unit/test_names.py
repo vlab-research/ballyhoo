@@ -1,4 +1,4 @@
-from ballyhoo.names import numbers, parse, pick_candidate, pick_run, prefixes
+from ballyhoo.names import numbers, parse, parse_picks, pick_candidate, pick_run, prefixes
 
 ORDER = [("singles", ["gemini-a", "gemini-b", "gemini-c"]), ("empty", []), ("couples", ["gemini-a", "pexels-1"])]
 RUNS = ["2026-09-24-1", "2026-09-24-3", "2026-09-25-1", "2026-09-25-2", "notes"]
@@ -59,3 +59,11 @@ def test_a_number_picks_its_need_and_candidate_or_says_what_the_run_has():
     assert pick_candidate("3.6", "2026-09-24-3", 6, ORDER) == (
         None, "3.6: 2026-09-24-3 has candidates 2026-09-24-3.1 to 2026-09-24-3.5")
     assert pick_candidate("3.1", "2026-09-24-3", 1, [("empty", [])]) == (None, "3.1: 2026-09-24-3 has no candidates")
+
+
+def test_a_pick_is_a_name_with_an_optional_file_name():
+    assert parse_picks(["3.4", "2026-09-24-3.5=couple-park", "6"]) == (
+        [("3.4", None), ("2026-09-24-3.5", "couple-park"), ("6", None)], [])
+    assert parse_picks(["3.4=", "pexels-1"]) == ([], [
+        "3.4=: expected a candidate's name, such as 3.4 or 2026-09-24-3.4, or <name>=<file name>",
+        "pexels-1: expected a candidate's name, such as 3.4 or 2026-09-24-3.4, or <name>=<file name>"])

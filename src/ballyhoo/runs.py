@@ -21,7 +21,7 @@ import yaml
 from PIL import Image
 from playwright.async_api import async_playwright
 
-from . import art, brief, cache, candidates, preview, render, review, sourcing, verdicts
+from . import art, brief, cache, candidates, names, preview, render, review, sourcing, verdicts
 
 BRIEF = "brief.yaml"
 MANIFEST = "manifest.yaml"
@@ -349,10 +349,65 @@ def keep_verdicts(run, need, to_dir, providers, http):
     ids, errors = verdicts.keep_plan(person, (run / verdicts.AGENT_FILE).is_file(), list(found), need)
     if errors:
         return [], errors
-    manifest, _ = _manifest(run)
-    fetched = datetime.date.fromisoformat(str(manifest["started"])[:10])  # stock originals are downloaded by source
     return sourcing.keep(run / need / candidates.FILE, [(i, None) for i in ids], to_dir, person.rated_by, http,
-                         today=person.rated_on, fetched=fetched)
+                         today=person.rated_on, fetched=_fetched(run))
+
+
+def _fetched(run):
+    """The day a run's stock originals were downloaded: source downloads them as the run starts."""
+    manifest, _ = _manifest(run)
+    return datetime.date.fromisoformat(str(manifest["started"])[:10])
+
+
+def resolve_names(path, picks, providers):
+    """Which candidate each named pick is, among the runs at `path`: a run folder, where a bare number
+    names a candidate too, a runs directory, or a brief, whose runs are the runs/ beside it.
+
+    `picks` are (name, file name or None). Returns ([(name, run folder, need, candidate id, file name
+    or None)], errors). A run is read only when a name picks it.
+    """
+    path = Path(path)
+    single = is_run(path)
+    root = path.parent / RUNS if path.is_file() else path
+    folders = {p.name: p for p in ([path] if single else run_folders(root) if root.is_dir() else [])}
+    orders, resolved, errors = {}, [], []
+    for name, file in picks:
+        found, error = names.pick_run(name, list(folders), single)
+        if error:
+            errors.append(error)
+            continue
+        run, number = found
+        if run not in orders:
+            needs, _, cands, _, problems = read(folders[run], providers)
+            errors += problems
+            orders[run] = None if problems else [(n.name, [c.id for c in cands.get(n.name, [])]) for n in needs]
+        if orders[run] is None:
+            errors.append(f"{name}: {run} cannot be read")
+            continue
+        pick, error = names.pick_candidate(name, run, number, orders[run])
+        if error:
+            errors.append(error)
+        else:
+            resolved.append((name, folders[run], *pick, file))
+    return resolved, errors
+
+
+def keep_named(path, picks, to_dir, picked_by, providers, http):
+    """Keep the candidates that named picks name (see resolve_names), or nothing when any name picks none:
+    one name that is wrong, such as a run number from another day, puts the others in doubt too.
+
+    Returns ([(name, run folder, need, candidate id, written path)], errors).
+    """
+    resolved, errors = resolve_names(path, picks, providers)
+    if errors:
+        return [], errors
+    written = []
+    for name, run, need, id_, file in resolved:
+        paths, problems = sourcing.keep(run / need / candidates.FILE, [(id_, file)], to_dir, picked_by, http,
+                                        fetched=_fetched(run))
+        written += [(name, run, need, id_, p) for p in paths]
+        errors += [f"{name}: {p}" for p in problems]
+    return written, errors
 
 
 def template_problems(designs, name, slot):
