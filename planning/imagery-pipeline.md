@@ -1,8 +1,10 @@
 # Plan: briefs, runs and review — the imagery pipeline end to end
 
 **Status: steps 1 (brief and source), 2 (scene slot and preview) and 3 (verdicts and review)
-built 2026-09-14; step 4's first live run made 2026-09-14, with the author's ratings pending;
-step 5 is still a plan.** It continues `planning/phase-2-imagery.md`, whose increments 1–4
+built 2026-09-14, and step 3's review reworked for a thread with an agent 2026-09-25 (§ 3,
+"Reworked"); step 4's first live run made 2026-09-14, with the author's ratings pending;
+step 5 built 2026-09-16. Drawings (styles, the chroma-key cut-out, the `#figure` slot) are
+built too; the direction note below predates them. Open next work is § 6.** It continues `planning/phase-2-imagery.md`, whose increments 1–4
 (provenance, candidates, stock and generation providers) are built. The author delegated the
 decisions below ("do what you think is best for now"); revisit any of them freely before
 building. Delete this file when the steps are done and their lessons are in `docs/design.md`.
@@ -187,7 +189,8 @@ top of each group, then the summary table. For each candidate it shows:
 - keep / maybe / drop, the issue checkboxes and a note.
 
 A name field is required before saving, and the page saves the whole verdicts map in one
-go. With no server (opened as a file) the controls are disabled. As built, it also shows
+go (superseded: each mark saves as it is made; § 3, "Reworked"). With no server (opened as a
+file) the controls are disabled. As built, it also shows
 alt text, every query that found a photo, and an agent's verdict as a hint.
 
 ## Modules
@@ -386,6 +389,21 @@ with a `made` sidecar, so the template also renders on its own.
   `tests/integration/test_review_cli.py`, which includes one browser test that rates on the
   page and saves.
 
+**Reworked for a thread with an agent (built 2026-09-25).** One afternoon of the loop on the
+Katelyn Romm brief needed a server per run, left ratings unsaved (nothing said Save had not
+been pressed), and had the agent naming images A to P on hand-drawn contact sheets. So:
+
+- `review BRIEF|RUNS` serves every run of a brief for as long as the thread lasts: newest
+  open, older folded, each headed with what it asked that the run before did not; `GET
+  /state`, polled by the page, which offers "New round: show it"; runs still sourcing or
+  previewing say so. `review RUN` still serves one run.
+- Every candidate has a short name, `3.4` (`names.py`), counting through the run in brief
+  order; `keep BRIEF|RUNS|RUN 3.4 … --to … --picked-by …` takes names.
+- Every mark saves as it is made (`verdicts.merge`, `runs.save_mark`); one rater per run until
+  every mark is cleared; a mark not saved says why on its card.
+- A note per need (`notes:` in `verdicts.yaml`), and `review BRIEF --summary` for the agent.
+- Usage is in README § Review; the reasons are in `docs/design.md` § Judging imagery.
+
 **For step 4:**
 
 - The smoke flow is `source`, `preview`, then `review` (which prints its URL), then
@@ -559,8 +577,12 @@ provenance while the other 88 carry none.
 - `ballyhoo runs summary runs/*`: keep rate and issues by need, provider, model and prompt.
 - `ballyhoo doctor`: one cheap call per provider with credentials, to catch expired keys and
   API changes.
-- Publishing the review page as an Artifact with a database for remote authors, and exporting
-  its database to `verdicts.yaml`.
+- **A page the author can reach from another device.** The review server listens on
+  127.0.0.1, so an author following the thread on a phone cannot open it. Publishing the
+  review page as an Artifact with a database, and exporting its database to `verdicts.yaml`,
+  is one way; it wants its own plan, with its own access question.
+- **Extending a cut-off drawing**, and framing drawings so they are not cut off:
+  `planning/extend-drawings.md`.
 - A face check for photo templates (a headline over a face). Nothing detects it now; the
   person does.
 - Photo templates for real studies, in `recruitment-creative/designs/`, around real picks.
