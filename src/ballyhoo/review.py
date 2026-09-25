@@ -1,18 +1,140 @@
-"""The review page: a run's candidates, what the checks found and the verdicts, as data for review.html.
+"""The review page: runs' candidates, what the checks found and the verdicts, as data for review.html.
 
-Pure. The shell loads the run's brief, each need's candidates.yaml and
-checks.yaml, verdicts.yaml and agent-verdicts.yaml. This module builds the
-page's data, the summary of verdicts per need, provider and query or prompt,
-and the page itself from the template. runs.py writes the page into the run;
-review_server.py serves it.
+Pure. The shell loads each run's brief, manifest, each need's candidates.yaml
+and checks.yaml, verdicts.yaml and agent-verdicts.yaml, and lists the files in
+each run with their modification times. This module orders the runs, says which
+have finished previewing and what each asked that the run before did not, digests
+the runs' state so the page can tell a new round has arrived, and builds the
+page's data, the summary of verdicts per need, provider and query or prompt, and
+the page itself from the template. runs.py writes the page into a run;
+review_server.py serves it for a run or a directory of runs.
 """
+import difflib
+import hashlib
 import json
+import re
 
 from .preview import URL
-from .verdicts import ISSUES, VERDICTS
+from .verdicts import FILE, ISSUES, VERDICTS
 
 PAGE = "review.html"
 MARK = "__BALLYHOO_DATA__"  # where the template takes its data
+RUN_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})-(\d+)")
+CONTEXT = 3  # words of unchanged prompt kept either side of a change
+
+
+def run_name(name):
+    """A run folder's (date, number), or None when the name is not `<date>-<n>`."""
+    m = RUN_NAME.fullmatch(name)
+    return (m[1], int(m[2])) if m else None
+
+
+def is_run(name, has_manifest):
+    """Whether a folder in a runs directory is a run: it has a manifest, or is named as one still being sourced."""
+    return has_manifest or run_name(name) is not None
+
+
+def run_order(names):
+    """Run names newest first: by date, then number (2026-09-24-10 after -9); other names last."""
+    named = sorted((n for n in names if run_name(n)), key=run_name, reverse=True)
+    return named + sorted((n for n in names if not run_name(n)), reverse=True)
+
+
+def newest(files):
+    """The newest modification time among a run's files, given as (path relative to the run, mtime) pairs.
+
+    The files the review page itself writes, verdicts.yaml and review.html, and temporary files
+    are left out: a save must not look like a new round. None when no file counts.
+    """
+    times = [t for path, t in files
+             if path not in (FILE, PAGE) and not any(part.startswith(".") for part in path.split("/"))]
+    return max(times, default=None)
+
+
+def run_status(has_manifest, with_candidates, previewed):
+    """"sourcing" until the manifest is written, "previewing" until every need with candidates has a
+    checks.yaml, then "ready". `with_candidates` and `previewed` are need folder names."""
+    if not has_manifest:
+        return "sourcing"
+    return "ready" if set(with_candidates) <= set(previewed) else "previewing"
+
+
+def state(runs):
+    """What the page polls to notice a new round: each run's name, newest file time and status, newest
+    run first, and a digest of them to compare. `runs` holds {"name", "mtime", "status"} dicts."""
+    by_name = {r["name"]: r for r in runs}
+    ordered = [by_name[n] for n in run_order(list(by_name))]
+    digest = hashlib.sha256(json.dumps(ordered, sort_keys=True).encode()).hexdigest()[:16]
+    return {"runs": ordered, "digest": digest}
+
+
+def asks(requests):
+    """What a run asked each provider for, from its manifest's requests: need -> (kind, provider) -> texts."""
+    result = {}
+    for r in requests:
+        text = r["query"] if r["kind"] == "search" else r["prompt"]
+        texts = result.setdefault(r["need"], {}).setdefault((r["kind"], r["provider"]), [])
+        if text not in texts:
+            texts.append(text)
+    return result
+
+
+def word_diff(before, after, context=CONTEXT):
+    """Two texts' difference by word: ["=", "-" or "+", text] segments, with unchanged runs of more
+    than `context` words either side of a change cut to them and "…"."""
+    a, b = before.split(), after.split()
+    segments = []
+    opcodes = difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes()
+    for n, (op, i1, i2, j1, j2) in enumerate(opcodes):
+        if op == "equal":
+            words = a[i1:i2]
+            first, last = n == 0, n == len(opcodes) - 1
+            if first and last:
+                keep = words
+            elif first:
+                keep = (["…"] + words[-context:]) if len(words) > context else words
+            elif last:
+                keep = (words[:context] + ["…"]) if len(words) > context else words
+            else:
+                keep = (words[:context] + ["…"] + words[-context:]) if len(words) > 2 * context + 1 else words
+            segments.append(["=", " ".join(keep)])
+        else:
+            if i2 > i1:
+                segments.append(["-", " ".join(a[i1:i2])])
+            if j2 > j1:
+                segments.append(["+", " ".join(b[j1:j2])])
+    return segments
+
+
+def changes(before, after):
+    """What a run asked that the run before it did not, per need, from both runs' `asks`.
+
+    A list of {"need", "change"}: "new" or "gone" for a need only one run asked for; otherwise
+    "changed" with "asks", one per kind and provider that differ, each {"kind", "provider"} with
+    "diff" (word_diff) when one prompt or query became another, else "added" and "removed" texts.
+    """
+    result = []
+    for need in [*after, *(n for n in before if n not in after)]:
+        if need not in before:
+            result.append({"need": need, "change": "new"})
+        elif need not in after:
+            result.append({"need": need, "change": "gone"})
+        else:
+            differ = []
+            for key in [*after[need], *(k for k in before[need] if k not in after[need])]:
+                old, new = before[need].get(key, []), after[need].get(key, [])
+                added, removed = [t for t in new if t not in old], [t for t in old if t not in new]
+                if not added and not removed:
+                    continue
+                entry = {"kind": key[0], "provider": key[1]}
+                if len(added) == len(removed) == 1:
+                    entry["diff"] = word_diff(removed[0], added[0])
+                else:
+                    entry.update(added=added, removed=removed)
+                differ.append(entry)
+            if differ:
+                result.append({"need": need, "change": "changed", "asks": differ})
+    return result
 
 
 def _counts(verdicts):

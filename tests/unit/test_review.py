@@ -4,7 +4,8 @@ import json
 import pytest
 
 from ballyhoo.candidates import Candidate, Cutout
-from ballyhoo.review import page, page_data, summary, summary_lines
+from ballyhoo.review import (asks, changes, is_run, newest, page, page_data, run_name, run_order, run_status, state,
+                             summary, summary_lines, word_diff)
 from ballyhoo.verdicts import Verdict, Verdicts
 
 ON = datetime.date(2026, 9, 14)
@@ -151,3 +152,77 @@ def test_the_page_embeds_its_data_so_no_text_in_it_can_end_the_script():
         "note": "</script><b>ñ"}
     with pytest.raises(ValueError):
         page("<p>no data</p>", {})
+
+
+def test_runs_are_ordered_newest_first_by_date_then_number():
+    names = ["2026-09-24-2", "2026-09-24-10", "notes", "2026-09-25-1", "2026-09-24-9"]
+    assert run_order(names) == ["2026-09-25-1", "2026-09-24-10", "2026-09-24-9", "2026-09-24-2", "notes"]
+    assert run_name("2026-09-24-10") == ("2026-09-24", 10) and run_name("2026-09-24") is None
+
+
+def test_a_folder_is_a_run_when_it_has_a_manifest_or_a_run_name():
+    assert is_run("2026-09-24-1", False) and is_run("by-hand", True)
+    assert not is_run("sheets", False)
+
+
+def test_the_newest_file_time_ignores_what_the_page_writes_and_temporary_files():
+    files = [("manifest.yaml", 10), ("ke-woman/checks.yaml", 30), ("verdicts.yaml", 90), ("review.html", 80),
+             (".verdicts.yaml.x.tmp", 70), ("ke-woman/.candidates.yaml.y.tmp", 60), ("agent-verdicts.yaml", 20)]
+    assert newest(files) == 30
+    assert newest([("verdicts.yaml", 5)]) is None and newest([]) is None
+
+
+def test_a_run_is_sourcing_until_its_manifest_then_previewing_until_every_need_with_candidates_is_checked():
+    assert run_status(False, ["a"], ["a"]) == "sourcing"
+    assert run_status(True, ["a", "b"], ["a"]) == "previewing"
+    assert run_status(True, ["a", "b"], ["a", "b"]) == "ready"
+    assert run_status(True, [], []) == "ready", "a run whose every request failed has nothing to preview"
+
+
+def test_the_state_orders_runs_and_its_digest_changes_with_any_of_them():
+    one = {"name": "2026-09-24-1", "mtime": 1, "status": "ready"}
+    two = {"name": "2026-09-24-2", "mtime": 2, "status": "previewing"}
+    s = state([one, two])
+    assert s["runs"] == [two, one]
+    assert state([two, one])["digest"] == s["digest"]
+    assert state([one, {**two, "status": "ready"}])["digest"] != s["digest"]
+    assert state([one, {**two, "mtime": 3}])["digest"] != s["digest"]
+    assert state([one])["digest"] != s["digest"]
+
+
+def search(need, query, provider="pexels"):
+    return {"need": need, "provider": provider, "kind": "search", "query": query, "n": 5}
+
+
+def generate(need, prompt, provider="gemini"):
+    return {"need": need, "provider": provider, "kind": "generate", "model": "m", "size": "1x1", "seeds": [1],
+            "prompt": prompt}
+
+
+def test_asks_group_a_runs_requests_by_need_kind_and_provider():
+    assert asks([search("a", "woman"), search("a", "woman"), search("a", "old woman"), generate("a", "A woman.")]) == {
+        "a": {("search", "pexels"): ["woman", "old woman"], ("generate", "gemini"): ["A woman."]}}
+
+
+def test_a_prompt_diff_keeps_a_few_words_either_side_of_each_change():
+    before = "They are relaxed and happy together, smiling easily, leaning into each other, one of them holding a phone."
+    after = "They are relaxed and happy together, leaning into each other, one of them holding a phone. No text."
+    assert word_diff(before, after) == [
+        ["=", "… and happy together,"], ["-", "smiling easily,"],
+        ["=", "leaning into each … holding a phone."], ["+", "No text."]]
+    assert word_diff("a b", "a c") == [["=", "a"], ["-", "b"], ["+", "c"]]
+
+
+def test_changes_name_new_and_gone_needs_and_what_each_kept_need_asks_differently():
+    before = asks([search("a", "woman"), search("a", "old woman"), generate("a", "A woman in green."),
+                   generate("b", "A man."), search("c", "same")])
+    after = asks([search("a", "woman"), search("a", "grey woman"), generate("a", "A woman in blue."),
+                  generate("a", "A woman.", provider="fal"), search("c", "same"), generate("d", "New.")])
+    assert changes(before, after) == [
+        {"need": "a", "change": "changed", "asks": [
+            {"kind": "search", "provider": "pexels", "diff": [["-", "old"], ["+", "grey"], ["=", "woman"]]},
+            {"kind": "generate", "provider": "gemini", "diff": [["=", "A woman in"], ["-", "green."], ["+", "blue."]]},
+            {"kind": "generate", "provider": "fal", "added": ["A woman."], "removed": []}]},
+        {"need": "d", "change": "new"},
+        {"need": "b", "change": "gone"}]
+    assert changes(after, after) == []
