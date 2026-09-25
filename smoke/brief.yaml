@@ -48,6 +48,9 @@ defaults:
 # became a blueprint with dimension lines, and a line drawing of a woman in
 # Nairobi became a street scene with shop signs and real brand names
 # (planning/phase-2-imagery.md § Spike results). Firefly needed neither.
+# The framing keeps the figure inside the picture with green on both sides:
+# arms drawn into a side edge are cut off in a straight line the ad shows, and
+# leave no border to read the key from.
 #
 # The prompt spike is still tuning this wording. When it settles, these texts
 # are what changes, and nothing else: a need names a style and a subject.
@@ -62,14 +65,16 @@ styles:
       - pastel palette.
     framing: >-
       She has her mobile phone in his hand, but she's looking off into the
-      distance. We see her at an angle. One figure, waist up, filling the
-      frame, and nothing else in the picture.
+      distance. We see her at an angle. One figure, waist up, inside the
+      picture with green on both sides of her, cut off only by the bottom
+      edge, and nothing else in the picture.
     guards: No lettering, signs, logos or brand names anywhere.
   bright-line:
     style: It should be a line drawing, brightly colored.
     framing: >-
       She should be on her mobile phone, but looking at us. One figure, waist
-      up, filling the frame, and nothing else in the picture.
+      up, inside the picture with green on both sides of her, cut off only by
+      the bottom edge, and nothing else in the picture.
     guards: No lettering, signs, logos or brand names anywhere.
   bw-technical:
     style: I would like a hand-drawn technical drawing, black and white.
