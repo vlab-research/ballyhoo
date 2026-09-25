@@ -225,6 +225,7 @@ def run_data(needs, found, checks, verdicts, agent, base=""):
         "agent": {"rated_by": agent.rated_by, "rated_on": agent.rated_on.isoformat()} if agent else None,
         "needs": [{"name": name, "need": text, "has_candidates": name in found, "previewed": name in checks,
                    "copy": checks[name].get("copy") if name in checks else None, "summary": tallies.get(name),
+                   "note": verdicts.notes.get(name) if verdicts else None,
                    "candidates": [_candidate(name, f"{base}{name}", c, numbered[name, c.id],
                                              checks.get(name, {}).get("candidates", {}).get(c.id), verdicts, agent)
                                   for c in found.get(name, [])]}

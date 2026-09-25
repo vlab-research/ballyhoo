@@ -136,6 +136,14 @@ def test_a_drawing_shows_its_cut_out_the_colour_keyed_out_and_what_the_mask_chec
     assert data()["needs"][0]["candidates"][0]["cutout"] is None, "a photograph has no cut-out"
 
 
+def test_each_need_carries_the_persons_note_on_it():
+    noted = Verdicts("A. Author", ON, VERDICTS.needs, {"ma-man": "None of these look 50."})
+    agent = Verdicts(AGENT.rated_by, ON, AGENT.needs, {"ke-woman": "Try older."})
+    needs = run_data({"ke-woman": "A Kenyan woman.", "ma-man": "A Moroccan man."}, FOUND, CHECKS, noted, agent)["needs"]
+    assert [n["note"] for n in needs] == [None, "None of these look 50."]
+    assert run_data({"ma-man": "A Moroccan man."}, FOUND, CHECKS, None, agent)["needs"][0]["note"] is None
+
+
 def test_the_agents_verdicts_never_stand_in_for_a_persons():
     d = run_data({"ke-woman": "A Kenyan woman."}, FOUND, CHECKS, None, AGENT)
     assert d["rated_by"] is None

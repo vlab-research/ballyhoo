@@ -85,6 +85,8 @@
   .saved-state.failed { color: var(--drop); font-weight: 600; }
   .issue-boxes { display: flex; flex-wrap: wrap; gap: .15rem .8rem; }
   textarea { width: 100%; box-sizing: border-box; font: inherit; }
+  .need-note { max-width: 760px; margin: .4rem 0 .8rem; }
+  .need-note.unsaved textarea { border-style: dashed; }
   button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; }
 </style>
 </head>
@@ -118,6 +120,7 @@ const POLL_MS = 3000;
 const NOTE_WAIT_MS = 800;  // a note is saved once typing pauses, not on every key
 const FILTERS = {all: () => true, unrated: v => !v, keep: v => v === "keep", undropped: v => v !== "drop"};
 const state = new Map();    // "<run>/<need>/<id>" -> what the person has chosen for that candidate
+const needNotes = new Map();  // "<run>/<need>" -> the person's note on that need as a whole
 const order = [];           // the keys in page order, for the arrow keys
 const summaries = {};       // "<run>/<need>" -> the element holding its summary table
 const progress = {};        // run -> the element counting its rated candidates
@@ -170,8 +173,23 @@ function paint(key) {
   s.tile.hidden = !FILTERS[filter](s.verdict);
 }
 
+// A mark is a candidate's verdict or a need's note; their keys differ in shape, so one lookup finds either.
+function mark(key) {
+  return state.get(key) || needNotes.get(key);
+}
+
+function marks() {
+  return [...state.values(), ...needNotes.values()];
+}
+
+function show(key) {
+  const s = mark(key);
+  if (s.tile) paint(key);
+  else s.wrap.classList.toggle("unsaved", !s.saved);
+}
+
 function showSaved(key, status, text) {
-  const s = state.get(key);
+  const s = mark(key);
   s.savedNode.className = "saved-state " + status;
   s.savedNode.textContent = text;
 }
@@ -181,7 +199,7 @@ function showProgress() {
     const mine = [...state.values()].filter(s => s.run === run);
     node.textContent = `${mine.filter(s => s.verdict).length} of ${mine.length} rated`;
   }
-  const unsaved = [...state.values()].filter(s => !s.saved).length;
+  const unsaved = marks().filter(s => !s.saved).length;
   const status = document.getElementById("status");
   status.className = unsaved ? "dirty" : "";
   status.textContent = unsaved ? `${unsaved} mark${unsaved > 1 ? "s" : ""} not saved`
@@ -189,10 +207,10 @@ function showProgress() {
 }
 
 function changed(key, wait) {
-  const s = state.get(key);
+  const s = mark(key);
   s.saved = false;
   s.version++;
-  paint(key);
+  show(key);
   showProgress();
   clearTimeout(s.timer);
   if (wait) {
@@ -220,7 +238,7 @@ function askName() {
 }
 
 function save(key) {
-  const s = state.get(key);
+  const s = mark(key);
   clearTimeout(s.timer);
   if (!EDITABLE || s.saved || s.queued) return;
   if (!rater) {
@@ -234,20 +252,21 @@ function save(key) {
 }
 
 async function send(key) {
-  const s = state.get(key);
+  const s = mark(key);
   s.queued = false;
   const version = s.version;
-  const [ok, reply] = await post({run: s.run, rated_by: rater, need: s.need, candidate: s.id, entry: entry(s)});
+  const body = s.tile ? {candidate: s.id, entry: entry(s)} : {note: s.note.trim()};
+  const [ok, reply] = await post({run: s.run, rated_by: rater, need: s.need, ...body});
   if (s.version !== version) return;  // changed while posting: the later post's answer is the one to show
   if (!ok) {
     showSaved(key, "failed", "not saved: " + (reply.errors || ["the server refused the mark"]).join("; "));
   } else {
     s.saved = anySaved = true;
-    showSaved(key, "saved", entry(s) ? "saved" : "cleared");
+    showSaved(key, "saved", (s.tile ? entry(s) : body.note) ? "saved" : "cleared");
     for (const [need, t] of Object.entries(reply.summary)) summaries[`${s.run}/${need}`]?.replaceChildren(summaryTable(t));
     ratedLines[s.run].textContent = reply.rated_by ? `rated by ${reply.rated_by} on ${reply.rated_on}` : "not rated yet";
   }
-  paint(key);
+  show(key);
   showProgress();
 }
 
@@ -340,6 +359,19 @@ function tile(run, need, c) {
   return s.tile;
 }
 
+function needNote(run, need) {
+  const key = `${run.name}/${need.name}`;
+  const n = {run: run.name, need: need.name, note: need.note || "", saved: true, version: 0, queued: false, timer: null};
+  n.savedNode = h("span", {class: "saved-state"}, need.note ? "saved" : "");
+  const box = h("textarea", {rows: 2, "aria-label": `note on ${need.name}`, disabled: !EDITABLE,
+    placeholder: `such as "less pensive" or "none of these look 50"`,
+    oninput: e => { n.note = e.target.value; changed(key, NOTE_WAIT_MS); }, onchange: () => save(key)});
+  box.value = n.note;
+  n.wrap = h("div", {class: "need-note"}, h("div", {class: "muted"}, `Note on ${need.name} as a whole`), box, n.savedNode);
+  needNotes.set(key, n);
+  return n.wrap;
+}
+
 function section(run, need) {
   const key = `${run.name}/${need.name}`;
   summaries[key] = h("div", {class: "summary-wrap"}, need.summary ? summaryTable(need.summary) : null);
@@ -350,6 +382,7 @@ function section(run, need) {
       : need.previewed ? h("p", {class: "muted"}, "previewed with: ", h("q", {}, need.copy))
       : h("p", {class: "badge warn"}, "not previewed: run ballyhoo preview"),
     summaries[key],
+    need.has_candidates ? needNote(run, need) : null,
     h("div", {class: "grid"}, need.candidates.map(c => tile(run, need, c))));
 }
 
@@ -422,10 +455,10 @@ if (EDITABLE) {
     if (!rater) return;
     nameInput.classList.remove("wanted");
     document.getElementById("name-wanted").hidden = true;
-    for (const key of order) save(key);
+    for (const key of [...order, ...needNotes.keys()]) save(key);
   });
   window.addEventListener("beforeunload", e => {
-    if ([...state.values()].some(s => !s.saved)) { e.preventDefault(); e.returnValue = ""; }
+    if (marks().some(s => !s.saved)) { e.preventDefault(); e.returnValue = ""; }
   });
   document.getElementById("new-round").addEventListener("click", () => location.reload());
   setTimeout(poll, POLL_MS);

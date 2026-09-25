@@ -421,10 +421,17 @@ def test_each_mark_on_the_page_is_saved_as_it_is_made(run, served, tmp_path):
             page.keyboard.press("d")
             expect(page.locator(f'{tile("fake-bright-2")} .saved-state')).to_have_text("cleared")
             assert "fake-bright-2" not in on_disk()
+
+            need_note = page.locator(f'[id="need-{run.name}/ma-man"] .need-note')
+            need_note.get_by_label("note on ma-man").fill("None of these look 50.")
+            expect(need_note.locator(".saved-state")).to_have_text("not saved yet")
+            expect(need_note.locator(".saved-state")).to_have_text("saved")
+            assert yaml.safe_load((run / "verdicts.yaml").read_text())["notes"] == {"ma-man": "None of these look 50."}
             page.screenshot(path=tmp_path / "review.png")
 
             page.reload()
             expect(page.get_by_label("Your name")).to_have_value("A. Author")
+            expect(page.get_by_label("note on ma-man")).to_have_value("None of these look 50.")
             page.get_by_label("Your name").fill("B. Other")
             page.keyboard.press("Enter")
             four = page.locator(tile("fake-bright-4"))
@@ -441,11 +448,14 @@ def test_each_mark_on_the_page_is_saved_as_it_is_made(run, served, tmp_path):
             keep = static.locator(f'{tile("fake-bright-3")} button.keep')
             expect(keep).to_be_disabled()
             expect(keep).to_have_attribute("aria-pressed", "true")
+            expect(static.get_by_label("note on ma-man")).to_be_disabled()
+            expect(static.get_by_label("note on ma-man")).to_have_value("None of these look 50.")
         finally:
             browser.close()
     assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {
         "rated_by": "A. Author", "rated_on": RATED_ON, "needs": {"ke-woman": {
-            "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."}}}}
+            "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."}}},
+        "notes": {"ma-man": "None of these look 50."}}
 
 
 @pytest.mark.browser

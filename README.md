@@ -409,13 +409,15 @@ with the name, run, need and id it resolved to.
 
 - Rate with keep, maybe or drop, the issue boxes and a note. `k`, `m` and `d` rate the
   candidate last clicked, and the arrow keys move between candidates.
-- Every mark saves as it is made: each keep, maybe, drop, issue or note (once typing
-  pauses) is merged into the run's `verdicts.yaml`, dated that day. The page asks for your
-  name at the top on your first mark and remembers it in this browser. Each card says
-  whether its mark is saved, and a card whose mark is not saved has a dashed border and
+- Each need in a run has a note on its candidates as a whole, such as "less pensive"
+  or "none of these look 50": what the next round should change, for the agent to read.
+- Every mark saves as it is made: each keep, maybe, drop, issue, note or need's note (once
+  typing pauses) is merged into the run's `verdicts.yaml`, dated that day. The page asks for your
+  name at the top on your first mark and remembers it in this browser. Each card, and
+  each need's note, says whether its mark is saved; one not saved has a dashed border and
   says why, such as a run already rated by someone else: one person rates a run, until
-  every mark in it is cleared. Clicking a card's verdict again clears it; issues and a
-  note are saved only with a verdict.
+  every mark in it, notes included, is cleared. Clicking a card's verdict again clears it;
+  a card's issues and note are saved only with a verdict, and a need's note on its own.
 - Opened as a file, as `preview` and each saved mark write it, the page is read-only.
 - The server listens only on 127.0.0.1, and serves the page and files in the run or
   runs directory, nothing else. A run's files, verdicts included, can be broken by hand;
