@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
-  The review page for a run, filled in by review.page with the data review.page_data builds.
-  `ballyhoo review RUN` serves it and saves verdicts.yaml when the page posts to /verdicts;
-  `ballyhoo preview` writes a read-only copy into the run. It loads nothing from the network.
+  The review page for a brief's runs, or for one run, filled in by review.page with the data
+  review.page_data builds. `ballyhoo review BRIEF` serves it, polls /state to offer a new round
+  when one arrives, and saves a run's verdicts.yaml when the page posts to /verdicts?run=NAME;
+  `ballyhoo preview` writes a read-only copy of one run into it. It loads nothing from the network.
   Decisions stay in Python: the page shows the data and posts what the person chose.
 -->
 <html lang="en">
@@ -16,14 +17,25 @@
   body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
   #bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;
          padding: .5rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
-  #bar input { font: inherit; padding: .3rem .4rem; width: 14rem; }
+  #rated-by { font: inherit; padding: .3rem .4rem; width: 14rem; }
   #save { font: inherit; padding: .35rem 1.2rem; }
   #status, .muted { color: var(--muted); }
   #status.dirty { color: var(--maybe); font-weight: 600; }
   #banner { margin: 0; padding: .6rem 1rem; background: #fff3cd; border-bottom: 1px solid #e5d18a; }
   #errors { margin: 0; padding: .6rem 1rem .6rem 2rem; background: #ffebe9; color: #82071e; border-bottom: 1px solid #f3b7b3; }
+  #new-round { font: inherit; padding: .35rem 1rem; background: var(--focus); color: #fff; border: 0; border-radius: 4px;
+               cursor: pointer; }
+  #filter label { margin-right: .5rem; white-space: nowrap; }
   main { padding: 0 1rem 4rem; }
-  .need h2 { margin: 1.5rem 0 .2rem; }
+  details.run { border-bottom: 1px solid var(--line); padding: .6rem 0; }
+  details.run > summary { cursor: pointer; }
+  details.run > summary h2 { display: inline; margin: 0 .6rem 0 0; font-size: 1.3rem; }
+  .run-meta { margin: .2rem 0 0 1.2rem; }
+  .changes { margin: .2rem 0 0 1.2rem; padding-left: 1rem; }
+  .changes .ask { margin-right: 1rem; }
+  ins { background: #dafbe1; text-decoration: none; } del { background: #ffebe9; }
+  .run-errors { color: var(--drop); }
+  .need h3 { margin: 1.5rem 0 .2rem; font-size: 1.15rem; }
   .need > p { margin: .2rem 0; }
   .summary-wrap { overflow-x: auto; }
   table.summary { border-collapse: collapse; font-size: 13px; margin: .6rem 0 1rem; background: var(--card); }
@@ -35,20 +47,24 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 760px), 1fr)); gap: 1rem; }
   .tile { background: var(--card); border: 1px solid var(--line); border-left: 6px solid var(--line); border-radius: 6px;
           padding: .75rem; display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+  .tile[hidden] { display: none; }
   .tile.focused { outline: 3px solid var(--focus); outline-offset: 1px; }
   .tile.keep { border-left-color: var(--keep); } .tile.maybe { border-left-color: var(--maybe); } .tile.drop { border-left-color: var(--drop); }
   .images { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; }
   .thumb { display: block; width: 480px; max-width: 100%; height: auto; background: #eee; }
-  .previews { display: flex; flex-direction: column; gap: .5rem; }
-  .preview { margin: 0; width: 240px; max-width: 100%; }
+  .side .thumb { width: 240px; }
+  .previews { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .preview { margin: 0; width: 480px; max-width: 100%; }
   .preview img { display: block; width: 100%; height: auto; border: 3px solid var(--keep); box-sizing: border-box; }
   .preview.fail img { border-color: var(--drop); }
   .preview .no-render { padding: 2rem .5rem; text-align: center; border: 3px dashed var(--drop); }
   .preview figcaption { font-size: 12px; }
   .cutout { margin: 0; width: 240px; max-width: 100%; }
   .cutout img { display: block; width: 100%; height: auto; box-sizing: border-box; border: 3px solid var(--keep);
-                background: repeating-conic-gradient(#e6e6e2 0 25%, #fff 0 50%) 0 0 / 24px 24px; }
+                background: #e8e6df; }
   .cutout.fail img { border-color: var(--drop); }
+  details.more > summary { cursor: pointer; color: var(--muted); }
+  details.more > div { display: flex; flex-direction: column; gap: .3rem; margin-top: .3rem; }
   .cutout figcaption { font-size: 12px; }
   .failures { color: var(--drop); margin: .2rem 0 0; padding-left: 1rem; }
   .head code { font-weight: 600; }
@@ -70,18 +86,22 @@
 </head>
 <body>
 <header id="bar">
-  <strong id="run"></strong>
+  <strong id="title"></strong>
   <label>Your name <input id="rated-by" autocomplete="name" required></label>
   <button id="save" type="button">Save</button>
   <span id="status"></span>
-  <span id="progress" class="muted"></span>
-  <span id="agent-by" class="muted"></span>
+  <span id="filter">show
+    <label><input type="radio" name="filter" value="all" checked> all</label>
+    <label><input type="radio" name="filter" value="unrated"> unrated</label>
+    <label><input type="radio" name="filter" value="keep"> keep</label>
+    <label><input type="radio" name="filter" value="undropped"> hide dropped</label></span>
+  <button id="new-round" type="button" hidden>New round: show it</button>
   <span class="muted">k keep · m maybe · d drop · arrows move · Esc leaves a note</span>
 </header>
 <p id="banner" hidden>Read-only: nothing on this page can be saved, because no ballyhoo server is behind it.
-  To rate, run <code>ballyhoo review RUN</code> and open the address it prints.</p>
+  To rate, run <code>ballyhoo review BRIEF</code> and open the address it prints.</p>
 <ul id="errors" hidden></ul>
-<main id="needs"></main>
+<main id="runs"></main>
 <script id="data" type="application/json">__BALLYHOO_DATA__</script>
 <script>
 "use strict";
@@ -90,11 +110,16 @@ const EDITABLE = DATA.editable && location.protocol !== "file:";
 const ISSUES = Object.keys(DATA.issues);
 const KEYS = {k: "keep", m: "maybe", d: "drop"};
 const NAME_KEY = "ballyhoo-rated-by";
-const state = new Map();  // "<need>/<id>" -> what the person has chosen for that candidate
-const order = [];         // the keys in page order, for the arrow keys
-const summaries = {};     // need -> the element holding its summary table
+const FILTER_KEY = "ballyhoo-filter";
+const POLL_MS = 3000;
+const FILTERS = {all: () => true, unrated: v => !v, keep: v => v === "keep", undropped: v => v !== "drop"};
+const state = new Map();    // "<run>/<need>/<id>" -> what the person has chosen for that candidate
+const order = [];           // the keys in page order, for the arrow keys
+const summaries = {};       // "<run>/<need>" -> the element holding its summary table
+const progress = {};        // run -> the element counting its rated candidates
+const dirty = new Set();    // runs with marks not yet saved
 let focused = null;
-let dirty = false;
+let filter = "all";
 
 function h(tag, props, ...children) {
   const node = document.createElement(tag);
@@ -134,18 +159,21 @@ function paint(key) {
   for (const b of s.buttons) b.setAttribute("aria-pressed", String(b.dataset.verdict === s.verdict));
   s.tile.classList.remove(...DATA.verdicts);
   if (s.verdict) s.tile.classList.add(s.verdict);
+  s.tile.hidden = !FILTERS[filter](s.verdict);
 }
 
 function showProgress() {
-  const rated = [...state.values()].filter(s => s.verdict).length;
-  document.getElementById("progress").textContent = `${rated} of ${state.size} rated`;
+  for (const [run, node] of Object.entries(progress)) {
+    const mine = [...state.values()].filter(s => s.run === run);
+    node.textContent = `${mine.filter(s => s.verdict).length} of ${mine.length} rated`;
+  }
   const status = document.getElementById("status");
-  status.className = dirty ? "dirty" : "";
-  if (dirty) status.textContent = "unsaved changes";
+  status.className = dirty.size ? "dirty" : "";
+  if (dirty.size) status.textContent = `unsaved changes in ${[...dirty].join(", ")}`;
 }
 
 function changed(key) {
-  dirty = true;
+  dirty.add(state.get(key).run);
   paint(key);
   showProgress();
 }
@@ -154,6 +182,12 @@ function setVerdict(key, verdict) {
   const s = state.get(key);
   s.verdict = s.verdict === verdict ? null : verdict;
   changed(key);
+}
+
+function setFilter(value) {
+  filter = FILTERS[value] ? value : "all";
+  for (const input of document.querySelectorAll('input[name="filter"]')) input.checked = input.value === filter;
+  for (const key of order) paint(key);
 }
 
 function focusTile(key, scroll) {
@@ -168,15 +202,18 @@ function preview(c, p) {
   const image = p.file
     ? link(p.file, h("img", {src: p.file, alt: `${c.id} in ${p.template}`, loading: "lazy"}))
     : h("div", {class: "no-render"}, "did not render");
-  return h("figure", {class: "preview " + p.status}, image,
-    h("figcaption", {}, h("b", {}, `${p.template} · ${p.status}`), p.summary ? h("div", {}, p.summary) : null,
-      p.failures.length ? h("ul", {class: "failures"}, p.failures.map(f => h("li", {}, f))) : null));
+  return h("figure", {class: "preview " + p.status}, image, h("figcaption", {}, h("b", {}, `${p.template} · ${p.status}`)));
 }
 
-function tile(need, c) {
-  const key = `${need.name}/${c.id}`;
+function checks(c) {
+  return c.previews.map(p => h("div", {}, h("b", {}, `${p.template} · ${p.status}`), p.summary ? ` · ${p.summary}` : "",
+    p.failures.length ? h("ul", {class: "failures"}, p.failures.map(f => h("li", {}, f))) : null));
+}
+
+function tile(run, need, c) {
+  const key = `${run.name}/${need.name}/${c.id}`;
   const v = c.verdict || {verdict: null, issues: [], note: null};
-  const s = {need: need.name, id: c.id, verdict: v.verdict, issues: new Set(v.issues), note: v.note || ""};
+  const s = {run: run.name, need: need.name, id: c.id, verdict: v.verdict, issues: new Set(v.issues), note: v.note || ""};
   state.set(key, s);
   order.push(key);
 
@@ -191,11 +228,13 @@ function tile(need, c) {
 
   const badge = !c.previewed ? h("span", {class: "badge warn"}, "not previewed")
     : c.pass ? null : h("span", {class: "badge fail"}, "fails checks");
-  const cut = c.cutout && h("figure", {class: "cutout" + (c.cutout.pass ? "" : " fail")},
-    link(c.cutout.file, h("img", {src: c.cutout.file, alt: `${c.id} cut out`, loading: "lazy"})),
-    h("figcaption", {}, h("b", {}, c.cutout.pass ? "cut out" : "cut out · the mask check failed"),
-      h("div", {class: "muted"}, `key ${c.cutout.key.join(", ")}`),
-      c.cutout.failures.length ? h("ul", {class: "failures"}, c.cutout.failures.map(f => h("li", {}, f))) : null));
+  const thumb = link(c.full, h("img", {class: "thumb", src: c.thumb, alt: c.alt || c.id, loading: "lazy"}));
+  // The ad is what is judged, so a preview is shown large, with the cut-out or the photo beside it.
+  const side = c.cutout
+    ? h("figure", {class: "cutout" + (c.cutout.pass ? "" : " fail")},
+        link(c.cutout.file, h("img", {src: c.cutout.file, alt: `${c.id} cut out`, loading: "lazy"})),
+        h("figcaption", {}, h("b", {}, c.cutout.pass ? "cut out" : "cut out · the mask check failed")))
+    : c.previews.length ? thumb : null;
   const origin = c.source === "generated"
     ? [h("div", {}, "prompt: ", h("q", {}, c.prompt)),
        h("div", {class: "muted"}, `model ${c.model} · seed ${c.seed}` + (c.style ? ` · style ${c.style}` : ""))]
@@ -203,34 +242,71 @@ function tile(need, c) {
          h("ul", {class: "queries"}, c.queries.map(q => h("li", {}, q)))),
        h("div", {class: "muted"}, "photo by ", link(c.creator_url, c.creator), " · ", link(c.licence_url, c.licence),
          " · ", link(c.page_url, "source page"))];
-  const agent = c.agent && h("div", {class: "agent", title: `the agent's verdict: ${DATA.agent.rated_by}`},
+  const cutout = c.cutout && h("div", {}, h("span", {class: "muted"}, `cut out: key ${c.cutout.key.join(", ")}`),
+    c.cutout.failures.length ? h("ul", {class: "failures"}, c.cutout.failures.map(f => h("li", {}, f))) : null,
+    " ", link(c.full, "the drawing as generated"));
+  const agent = c.agent && h("div", {class: "agent", title: `the agent's verdict: ${run.agent.rated_by}`},
     "agent: ", h("b", {}, c.agent.verdict), c.agent.issues.length ? " · " + c.agent.issues.join(", ") : "",
     c.agent.note ? " · " + c.agent.note : "");
+  const more = [c.source === "generated" ? "prompt, model, seed" : "queries, photographer", "checks",
+                c.agent ? `agent: ${c.agent.verdict}` : null].filter(Boolean).join(" · ");
 
   s.tile = h("article", {class: "tile", "data-key": key, onmousedown: () => focusTile(key, false)},
     h("div", {class: "images"},
-      link(c.full, h("img", {class: "thumb", src: c.thumb, alt: c.alt || c.id, loading: "lazy"})),
-      cut,
-      c.previews.length ? h("div", {class: "previews"}, c.previews.map(p => preview(c, p))) : null),
+      c.previews.length ? h("div", {class: "previews"}, c.previews.map(p => preview(c, p))) : thumb,
+      side ? h("div", {class: "side"}, side) : null),
     h("div", {class: "meta"},
       h("div", {class: "head"}, h("code", {}, c.id), ` ${c.width}×${c.height} · ${c.provider} `, badge),
-      c.alt ? h("div", {class: "alt"}, c.alt) : null, origin),
-    agent,
+      c.alt ? h("div", {class: "alt"}, c.alt) : null),
+    h("details", {class: "more"}, h("summary", {}, more), h("div", {}, origin, checks(c), cutout, agent)),
     h("div", {class: "controls"}, h("div", {class: "verdicts"}, s.buttons), h("div", {class: "issue-boxes"}, boxes), note));
   paint(key);
   return s.tile;
 }
 
-function section(need) {
-  summaries[need.name] = h("div", {class: "summary-wrap"}, need.summary ? summaryTable(need.summary) : null);
-  return h("section", {class: "need", id: "need-" + need.name},
-    h("h2", {}, need.name),
+function section(run, need) {
+  const key = `${run.name}/${need.name}`;
+  summaries[key] = h("div", {class: "summary-wrap"}, need.summary ? summaryTable(need.summary) : null);
+  return h("section", {class: "need", id: `need-${key}`},
+    h("h3", {}, need.name),
     h("p", {}, need.need),
     !need.has_candidates ? h("p", {class: "badge warn"}, "no candidates: every request for this need failed")
       : need.previewed ? h("p", {class: "muted"}, "previewed with: ", h("q", {}, need.copy))
       : h("p", {class: "badge warn"}, "not previewed: run ballyhoo preview"),
-    summaries[need.name],
-    h("div", {class: "grid"}, need.candidates.map(c => tile(need, c))));
+    summaries[key],
+    h("div", {class: "grid"}, need.candidates.map(c => tile(run, need, c))));
+}
+
+function diffView(segments) {
+  return segments.map(([op, text]) => op === "+" ? h("ins", {}, text) : op === "-" ? h("del", {}, text) : text)
+    .flatMap((node, i) => i ? [" ", node] : [node]);
+}
+
+function changeList(run) {
+  if (!run.changes) return null;
+  if (!run.changes.length) return h("div", {class: "run-meta muted"}, "asks what the run before asked");
+  return h("ul", {class: "changes"}, run.changes.map(c => h("li", {}, h("b", {}, c.need), ": ",
+    c.change === "new" ? "new need" : c.change === "gone" ? "not asked in this run"
+      : c.asks.map(a => h("span", {class: "ask"}, `${a.provider} ${a.kind === "search" ? "query" : "prompt"}: `,
+          a.diff ? diffView(a.diff)
+            : [...a.removed.map(t => h("del", {}, t)), " ", ...a.added.map(t => h("ins", {}, t))])))));
+}
+
+const STATUS = {sourcing: "sourcing: not ready to review", previewing: "previewing: checks not written yet"};
+
+function runSection(run) {
+  progress[run.name] = h("span", {class: "muted"});
+  const rated = run.rated_by ? `rated by ${run.rated_by} on ${run.rated_on}` : "not rated yet";
+  return h("details", {class: "run", id: `run-${run.name}`, open: run.open},
+    h("summary", {},
+      h("h2", {}, run.name),
+      STATUS[run.status] ? h("span", {class: "badge warn"}, STATUS[run.status]) : null,
+      h("div", {class: "run-meta"}, run.needs.map(n => n.name).join(", "),
+        run.needs.length ? " · " : null, progress[run.name], " · ", rated,
+        run.agent ? ` · agent hints: ${run.agent.rated_by}` : null),
+      changeList(run),
+      run.errors.length ? h("ul", {class: "run-errors"}, run.errors.map(e => h("li", {}, e))) : null),
+    run.needs.map(need => section(run, need)));
 }
 
 function today() {
@@ -245,9 +321,10 @@ function showErrors(messages) {
   if (messages.length) box.scrollIntoView({block: "nearest"});
 }
 
-function payload(name) {
+function payload(name, run) {
   const needs = {};
   for (const s of state.values()) {
+    if (s.run !== run) continue;
     const note = s.note.trim();
     if (!s.verdict && !s.issues.size && !note) continue;
     const entry = {verdict: s.verdict};  // a note or issue without a verdict is sent, and refused by name
@@ -256,6 +333,16 @@ function payload(name) {
     (needs[s.need] = needs[s.need] || {})[s.id] = entry;
   }
   return {rated_by: name, rated_on: today(), needs};
+}
+
+async function post(run, body) {
+  try {
+    const response = await fetch(`/verdicts?run=${encodeURIComponent(run)}`, {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    return [response.ok, await response.json()];
+  } catch (e) {
+    return [false, {errors: [`could not reach the ballyhoo server: ${e}`]}];
+  }
 }
 
 async function save() {
@@ -268,34 +355,43 @@ async function save() {
   }
   const status = document.getElementById("status");
   status.textContent = "saving…";
-  let reply, ok;
-  try {
-    const response = await fetch("/verdicts", {method: "POST", headers: {"Content-Type": "application/json"},
-                                               body: JSON.stringify(payload(name))});
-    ok = response.ok;
-    reply = await response.json();
-  } catch (e) {
-    ok = false;
-    reply = {errors: [`could not reach the ballyhoo server: ${e}`]};
+  const errors = [];
+  for (const run of [...dirty]) {
+    const [ok, reply] = await post(run, payload(name, run));
+    if (!ok) {
+      errors.push(...(reply.errors || ["the server refused the save"]).map(e => `${run}: ${e}`));
+      continue;
+    }
+    dirty.delete(run);
+    for (const [need, s] of Object.entries(reply.summary)) summaries[`${run}/${need}`]?.replaceChildren(summaryTable(s));
   }
-  if (!ok) {
+  if (errors.length) {
     status.textContent = "not saved";
-    showErrors(reply.errors || ["the server refused the save"]);
+    showErrors(errors);
     return;
   }
   try { localStorage.setItem(NAME_KEY, name); } catch (e) { /* storage blocked: the name is typed again next time */ }
-  dirty = false;
   showErrors([]);
-  for (const [need, s] of Object.entries(reply.summary)) summaries[need]?.replaceChildren(summaryTable(s));
   showProgress();
-  status.textContent = `saved to ${reply.saved} at ${new Date().toLocaleTimeString()}`;
+  status.textContent = `saved to verdicts.yaml at ${new Date().toLocaleTimeString()}`;
 }
 
-document.getElementById("run").textContent = DATA.run;
-document.title = `Review ${DATA.run}`;
-document.getElementById("needs").append(...DATA.needs.map(section));
-if (DATA.rated_by) document.getElementById("status").textContent = `last saved by ${DATA.rated_by} on ${DATA.rated_on}`;
-if (DATA.agent) document.getElementById("agent-by").textContent = `agent hints: ${DATA.agent.rated_by}`;
+async function poll() {
+  try {
+    const response = await fetch("/state", {cache: "no-store"});
+    if (response.ok && (await response.json()).digest !== DATA.state) {
+      document.getElementById("new-round").hidden = false;
+      return;
+    }
+  } catch (e) { /* the server is restarting or stopped: keep asking */ }
+  setTimeout(poll, POLL_MS);
+}
+
+const single = DATA.runs.length === 1;
+document.getElementById("title").textContent = single ? DATA.runs[0].name : `${DATA.runs.length} runs`;
+document.title = single ? `Review ${DATA.runs[0].name}` : "Review";
+document.getElementById("runs").append(...(DATA.runs.length ? DATA.runs.map(runSection)
+  : [h("p", {class: "muted"}, "No runs yet. They appear here as ballyhoo source makes them.")]));
 showProgress();
 
 const nameInput = document.getElementById("rated-by");
@@ -303,11 +399,18 @@ const saveButton = document.getElementById("save");
 if (EDITABLE) {
   try { nameInput.value = localStorage.getItem(NAME_KEY) || ""; } catch (e) { /* storage blocked */ }
   saveButton.addEventListener("click", save);
-  window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("beforeunload", e => { if (dirty.size) { e.preventDefault(); e.returnValue = ""; } });
+  document.getElementById("new-round").addEventListener("click", () => location.reload());
+  setTimeout(poll, POLL_MS);
 } else {
   nameInput.disabled = saveButton.disabled = true;
   document.getElementById("banner").hidden = false;
 }
+try { setFilter(localStorage.getItem(FILTER_KEY) || "all"); } catch (e) { /* storage blocked: show all */ }
+document.getElementById("filter").addEventListener("change", e => {
+  setFilter(e.target.value);
+  try { localStorage.setItem(FILTER_KEY, filter); } catch (err) { /* storage blocked */ }
+});
 
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key === "s") {
@@ -319,14 +422,16 @@ document.addEventListener("keydown", e => {
     if (e.key === "Escape") e.target.blur();
     return;
   }
-  if (e.ctrlKey || e.metaKey || e.altKey || !order.length) return;
-  const i = order.indexOf(focused);
+  // A tile filtered out, or in a folded run, is not rendered, so it has no offsetParent.
+  const shown = order.filter(k => state.get(k).tile.offsetParent !== null);
+  if (e.ctrlKey || e.metaKey || e.altKey || !shown.length) return;
+  const i = shown.indexOf(focused);
   if (e.key === "ArrowRight" || e.key === "ArrowDown") {
     e.preventDefault();
-    focusTile(order[Math.min(i + 1, order.length - 1)], true);
+    focusTile(shown[Math.min(i + 1, shown.length - 1)], true);
   } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
     e.preventDefault();
-    focusTile(order[Math.max(i - 1, 0)], true);
+    focusTile(shown[Math.max(i - 1, 0)], true);
   } else if (EDITABLE && focused && KEYS[e.key]) {
     setVerdict(focused, KEYS[e.key]);
   }

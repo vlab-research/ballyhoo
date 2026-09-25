@@ -370,28 +370,37 @@ pipeline: a scene under a band only 25% opaque, so a dark photo fails contrast.
 
 ## Review
 
-`review` serves a run's review page on 127.0.0.1, where a person rates each candidate
+`review` serves a review page on 127.0.0.1, where a person rates each candidate
 against its need. `keep --verdicts` then keeps what they rated keep.
 
-    uv run ballyhoo review runs/2026-09-14-1              # prints the page's address; --port N (default: any free port)
+    uv run ballyhoo review brief.yaml                     # every run in runs/ next to the brief, or name a runs directory
+    uv run ballyhoo review runs/2026-09-14-1              # one run; either prints the page's address; --port N (default: any free port)
     uv run ballyhoo review runs/2026-09-14-1 --summary    # print the counts below and exit; --agent counts agent-verdicts.yaml
     uv run ballyhoo keep runs/2026-09-14-1 --verdicts --need ea-woman --to ../recruitment-creative/scenes
 
-The page groups candidates by need, in brief order. Each need opens with what it asks
-for, the headline its previews used, and the summary. Each candidate shows its
-thumbnail (click for the full image), its preview renders with any check failures,
-its provider, the queries that found it or its prompt, alt text, the photographer and
-licence or the model and seed, and an agent's verdict when there is one.
+The page shows runs newest first, the newest open and older ones folded, each headed
+with its needs and what it asked that the run before did not. The server reads the
+runs from disk on every request, so a run made while it is up appears: the page
+offers "New round: show it" rather than reloading under the cursor. A filter shows
+all candidates, the unrated, the keeps, or all but the drops.
+
+Within a run, the page groups candidates by need, in brief order. Each need opens with
+what it asks for, the headline its previews used, and the summary. Each candidate shows
+its preview renders large, with its cut-out or its photo beside them (click for the full
+image), its provider and alt text; its queries or prompt, the photographer and licence
+or the model and seed, the check failures, and an agent's verdict when there is one are
+folded beneath.
 
 - Rate with keep, maybe or drop, the issue boxes and a note. `k`, `m` and `d` rate the
   candidate last clicked, and the arrow keys move between candidates.
-- A name is required to save. Saving sends every verdict on the page at once and writes
-  `verdicts.yaml` under that name, so one person rates a run. An invalid save is refused
+- A name is required to save. Saving sends each changed run's verdicts at once and writes
+  its `verdicts.yaml` under that name, so one person rates a run. An invalid save is refused
   with every problem, and nothing is written.
 - Opened as a file, as `preview` and each save write it, the page is read-only.
-- The server listens only on 127.0.0.1, and serves the page and files in the run,
-  nothing else. A run's files, verdicts included, can be broken by hand; `review` then
-  reports every problem and does not start.
+- The server listens only on 127.0.0.1, and serves the page and files in the run or
+  runs directory, nothing else. A run's files, verdicts included, can be broken by hand;
+  `review RUN` then reports every problem and does not start, and a page of runs shows
+  them in place of that run.
 
 ```yaml
 # verdicts.yaml

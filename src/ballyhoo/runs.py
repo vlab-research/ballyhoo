@@ -148,7 +148,7 @@ def source(path, jobs, costs, providers, http, env, out=None, today=None, sleep=
                     "ballyhoo": render.package_digest(),
                     "estimated_cost_usd": round(sum(c for c in costs if c is not None), 4),
                     "requests": records, "errors": errors}
-        (run / MANIFEST).write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True))
+        write_atomically(run / MANIFEST, yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True))
     return run, records, errors
 
 
@@ -226,17 +226,92 @@ def read_review(run, providers):
     return Review(run.name, {n.name: n.need for n in needs}, found, checks, person, agent), []
 
 
-def review_page(r, editable):
-    """The review page's HTML. `editable` says whether a server is behind it to save to."""
-    data = review.page_data(r.name, r.needs, r.found, r.checks, r.verdicts, r.agent, editable)
+def is_run(path):
+    """Whether a folder is a run: it has a manifest, or is named as one still being sourced."""
+    return path.is_dir() and review.is_run(path.name, (path / MANIFEST).is_file())
+
+
+def run_folders(runs_dir):
+    """The runs in a runs directory, in no particular order."""
+    return [p for p in Path(runs_dir).iterdir() if not p.name.startswith(".") and is_run(p)]
+
+
+def _files(run):
+    """Every file under a run as (path relative to it, modification time in ns)."""
+    for directory, _, names in os.walk(run):
+        for name in names:
+            path = Path(directory) / name
+            try:
+                yield path.relative_to(run).as_posix(), path.stat().st_mtime_ns
+            except FileNotFoundError:  # a temporary file renamed into place between listing and stat
+                continue
+
+
+def run_state(run):
+    """A run's name, newest file time and status, as review.state takes them."""
+    run = Path(run)
+    folders = [p for p in run.iterdir() if p.is_dir()]
+    return {"name": run.name, "mtime": review.newest(_files(run)),
+            "status": review.run_status((run / MANIFEST).is_file(),
+                                        [p.name for p in folders if (p / candidates.FILE).is_file()],
+                                        [p.name for p in folders if (p / preview.CHECKS).is_file()])}
+
+
+def served(root, single):
+    """The runs a review server shows: the run itself, or every run in the runs directory."""
+    return [Path(root)] if single else run_folders(root)
+
+
+def state(root, single):
+    """What /state answers: see review.state."""
+    return review.state([run_state(run) for run in served(root, single)])
+
+
+def _page_run(run, status, providers, base):
+    """One run as review.page_data takes it. A run that cannot be read carries its errors instead of
+    its data, so one broken run does not hide the others."""
+    entry = {"name": run.name, "status": status, "errors": [], "requests": None, "data": None}
+    if status == "sourcing":
+        return entry
+    try:
+        manifest, errors = _manifest(run)
+        if errors:
+            return {**entry, "errors": errors}
+        r, errors = read_review(run, providers)
+    except (OSError, yaml.YAMLError) as e:  # a file being written as the page is read
+        return {**entry, "errors": [f"{run}: {e}"]}
+    entry["requests"] = manifest.get("requests") or []
+    if errors:
+        return {**entry, "errors": errors}
+    return {**entry, "data": review.run_data(r.needs, r.found, r.checks, r.verdicts, r.agent, base)}
+
+
+def served_page(root, single, providers):
+    """The review page a server shows for a run, or for every run in a runs directory, as on disk now."""
+    root = Path(root)
+    entries, states = [], []
+    for run in served(root, single):
+        s = run_state(run)
+        states.append(s)
+        entries.append(_page_run(run, s["status"], providers, "" if single else f"{run.name}/"))
+    data = review.page_data(entries, editable=True, digest=review.state(states)["digest"])
     return review.page(TEMPLATE.read_text(), data)
+
+
+def review_page(run, r):
+    """The read-only review.html written into a run, showing that run alone."""
+    s = run_state(run)
+    entry = {"name": r.name, "status": s["status"], "errors": [], "requests": None,
+             "data": review.run_data(r.needs, r.found, r.checks, r.verdicts, r.agent)}
+    return review.page(TEMPLATE.read_text(),
+                       review.page_data([entry], editable=False, digest=review.state([s])["digest"]))
 
 
 def write_review(run, providers):
     """Write the run's read-only review.html. Returns errors, and writes nothing when there are any."""
     r, errors = read_review(run, providers)
     if not errors:
-        write_atomically(Path(run) / review.PAGE, review_page(r, editable=False))
+        write_atomically(Path(run) / review.PAGE, review_page(run, r))
     return errors
 
 
@@ -256,7 +331,7 @@ def save_verdicts(run, providers, data):
         return None, errors
     write_atomically(run / verdicts.FILE, yaml.safe_dump(verdicts.dump(parsed), sort_keys=False, allow_unicode=True))
     r = Review(run.name, {n.name: n.need for n in needs}, found, checks, parsed, agent)
-    write_atomically(run / review.PAGE, review_page(r, editable=False))
+    write_atomically(run / review.PAGE, review_page(run, r))
     return {"saved": verdicts.FILE, "summary": review.summary(found, parsed)}, []
 
 
@@ -346,5 +421,5 @@ def render_previews(run, providers):
     for need in needs:
         if need.name in found:
             data = preview.checks_data(need, [o for o in outcomes if o.preview.need == need.name], ballyhoo, previewed)
-            (run / need.name / preview.CHECKS).write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+            write_atomically(run / need.name / preview.CHECKS, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
     return outcomes, empty, write_review(run, providers)

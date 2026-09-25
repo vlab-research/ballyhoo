@@ -84,8 +84,10 @@ def main(argv=None):
     v.add_argument("folder", metavar="run", type=Path, help="a run folder that source made")
     v.set_defaults(run=run_preview)
 
-    w = sub.add_parser("review", help="serve a run's review page on 127.0.0.1, where a person rates its candidates")
-    w.add_argument("folder", metavar="run", type=Path, help="a run folder that source made")
+    w = sub.add_parser("review", help="serve the review page of a brief's runs, or of one run, on 127.0.0.1, "
+                                      "where a person rates their candidates")
+    w.add_argument("folder", metavar="brief_or_runs", type=Path,
+                   help="a brief (its runs/), a directory of runs, or one run folder that source made")
     w.add_argument("--port", type=int, default=0, help="the port to serve on (default 0: any free port)")
     w.add_argument("--summary", action="store_true",
                    help="print keep, maybe and drop counts per need, provider and query or prompt, and exit")
@@ -249,10 +251,17 @@ def run_preview(ap, args):
 
 
 def run_review(ap, args):
-    if not args.folder.is_dir():
-        ap.error(f"{args.folder}: no such run folder")
     if args.agent and not args.summary:
         ap.error("--agent applies only with --summary: the page shows the agent's verdicts as hints")
+    if not args.folder.exists():
+        ap.error(f"{args.folder}: no such brief, runs directory or run folder")
+    if not runs.is_run(args.folder):
+        if args.summary:
+            ap.error("--summary takes one run folder")
+        if args.folder.is_file():
+            args.folder = args.folder.parent / runs.RUNS
+            args.folder.mkdir(exist_ok=True)  # where source puts the brief's runs, so the page shows them as they come
+        return serve(args.folder, args.port, f"every run in {args.folder}", "each run's verdicts.yaml")
     r, errors = runs.read_review(args.folder, PROVIDERS)
     for e in errors:
         print(f"FAIL  {e}")
@@ -268,9 +277,12 @@ def run_review(ap, args):
         for line in review.summary_lines(review.summary(r.found, rated)):
             print(line)
         return 0
-    server = review_server.make_server(args.folder, PROVIDERS, args.port)
-    print(f"review {args.folder} at {review_server.url(server)}  (saves {args.folder / verdicts.FILE}; Ctrl+C stops)",
-          flush=True)
+    return serve(args.folder, args.port, str(args.folder), args.folder / verdicts.FILE)
+
+
+def serve(folder, port, what, saves):
+    server = review_server.make_server(folder, PROVIDERS, port)
+    print(f"review {what} at {review_server.url(server)}  (saves {saves}; Ctrl+C stops)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

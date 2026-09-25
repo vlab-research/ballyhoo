@@ -4,8 +4,8 @@ import json
 import pytest
 
 from ballyhoo.candidates import Candidate, Cutout
-from ballyhoo.review import (asks, changes, is_run, newest, page, page_data, run_name, run_order, run_status, state,
-                             summary, summary_lines, word_diff)
+from ballyhoo.review import (asks, changes, is_run, newest, page, page_data, run_data, run_name, run_order, run_status,
+                             state, summary, summary_lines, word_diff)
 from ballyhoo.verdicts import Verdict, Verdicts
 
 ON = datetime.date(2026, 9, 14)
@@ -82,12 +82,12 @@ def test_the_summary_prints_one_line_per_need_provider_and_query_or_prompt():
 
 def data():
     needs = {"ke-woman": "A Kenyan woman.", "ma-man": "A Moroccan man.", "down": "Anything."}
-    return page_data("2026-09-14-1", needs, FOUND, CHECKS, VERDICTS, AGENT, editable=True)
+    return run_data(needs, FOUND, CHECKS, VERDICTS, AGENT)
 
 
 def test_the_page_groups_candidates_by_need_in_brief_order_and_marks_what_was_not_previewed():
     d = data()
-    assert (d["run"], d["editable"], d["rated_by"], d["rated_on"]) == ("2026-09-14-1", True, "A. Author", "2026-09-14")
+    assert (d["rated_by"], d["rated_on"]) == ("A. Author", "2026-09-14")
     assert d["agent"] == {"rated_by": "claude-code (claude-opus-5)", "rated_on": "2026-09-14"}
     assert [(n["name"], n["need"], n["has_candidates"], n["previewed"], len(n["candidates"])) for n in d["needs"]] == [
         ("ke-woman", "A Kenyan woman.", True, True, 4), ("ma-man", "A Moroccan man.", True, False, 1),
@@ -129,8 +129,7 @@ DRAWN = Candidate("gemini-def", 1080, 1080, "generated/gemini-def.png", "generat
 
 
 def test_a_drawing_shows_its_cut_out_the_colour_keyed_out_and_what_the_mask_check_found():
-    [drawn] = page_data("r", {"na-woman": "A woman."}, {"na-woman": [DRAWN]}, {}, None, None,
-                        editable=True)["needs"][0]["candidates"]
+    [drawn] = run_data({"na-woman": "A woman."}, {"na-woman": [DRAWN]}, {}, None, None)["needs"][0]["candidates"]
     assert drawn["cutout"] == {"file": "na-woman/cutouts/gemini-def.png", "key": [9, 193, 18], "pass": False,
                                "failures": ["2 stray specks in the mask"]}
     assert (drawn["style"], drawn["full"]) == ("pastel-hand", "na-woman/generated/gemini-def.png")
@@ -138,10 +137,45 @@ def test_a_drawing_shows_its_cut_out_the_colour_keyed_out_and_what_the_mask_chec
 
 
 def test_the_agents_verdicts_never_stand_in_for_a_persons():
-    d = page_data("r", {"ke-woman": "A Kenyan woman."}, FOUND, CHECKS, None, AGENT, editable=True)
+    d = run_data({"ke-woman": "A Kenyan woman."}, FOUND, CHECKS, None, AGENT)
     assert d["rated_by"] is None
     assert [c["verdict"] for c in d["needs"][0]["candidates"]] == [None, None, None, None]
     assert d["needs"][0]["summary"]["unrated"] == 4
+
+
+def test_a_page_of_many_runs_finds_each_runs_files_under_its_own_folder():
+    [one] = run_data({"ke-woman": "A Kenyan woman."}, FOUND, CHECKS, None, None, base="2026-09-14-1/")["needs"][0][
+        "candidates"][:1]
+    assert (one["thumb"], one["previews"][0]["file"]) == (
+        "2026-09-14-1/ke-woman/thumbs/pexels-1.jpg", "2026-09-14-1/ke-woman/previews/pexels-1_photo-band_1080x1080.png")
+    [openverse] = run_data({"ma-man": "A man."}, FOUND, {}, None, None, base="r/")["needs"][0]["candidates"]
+    assert openverse["full"] == "https://images.example/x1.jpg", "a URL is not a file in the run"
+
+
+def entry(name, status="ready", requests=(), data=None, errors=()):
+    return {"name": name, "status": status, "errors": list(errors),
+            "requests": None if requests is None else list(requests), "data": data}
+
+
+def test_the_page_shows_runs_newest_first_with_the_newest_sourced_one_open_and_what_each_changed():
+    first = [search("a", "woman"), generate("a", "A woman in green.")]
+    second = [search("a", "woman"), generate("a", "A woman in blue.")]
+    runs = [entry("2026-09-24-1", requests=first, data=data()), entry("2026-09-24-2", requests=second),
+            entry("2026-09-24-10", requests=None, errors=["2026-09-24-10: not a run folder: gone"]),
+            entry("2026-09-25-1", status="sourcing", requests=None)]
+    d = page_data(runs, editable=True, digest="abc")
+    assert (d["editable"], d["state"], d["verdicts"]) == (True, "abc", ["keep", "maybe", "drop"])
+    assert [(r["name"], r["date"], r["number"], r["status"], r["open"]) for r in d["runs"]] == [
+        ("2026-09-25-1", "2026-09-25", 1, "sourcing", False), ("2026-09-24-10", "2026-09-24", 10, "ready", True),
+        ("2026-09-24-2", "2026-09-24", 2, "ready", False), ("2026-09-24-1", "2026-09-24", 1, "ready", False)]
+    sourcing, broken, two, one = d["runs"]
+    assert (sourcing["changes"], sourcing["needs"], broken["changes"]) == (None, [], None)
+    assert broken["errors"] == ["2026-09-24-10: not a run folder: gone"]
+    assert two["changes"] == [{"need": "a", "change": "changed", "asks": [
+        {"kind": "generate", "provider": "gemini", "diff": [["=", "A woman in"], ["-", "green."], ["+", "blue."]]}]}]
+    assert one["changes"] is None, "the oldest run has nothing to compare with"
+    assert one["rated_by"] == "A. Author" and [n["name"] for n in one["needs"]] == ["ke-woman", "ma-man", "down"]
+    assert page_data([], editable=True, digest="x")["runs"] == []
 
 
 def test_the_page_embeds_its_data_so_no_text_in_it_can_end_the_script():

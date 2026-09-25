@@ -3,6 +3,7 @@
 The review server runs for real on an ephemeral port in a thread, driven with httpx. No browser: the
 need that is "previewed" has a checks.yaml written by hand.
 """
+import contextlib
 import datetime
 import http.client
 import threading
@@ -57,9 +58,9 @@ def run(sent, tmp_path, capsys):
     return run
 
 
-@pytest.fixture
-def served(run):
-    server = review_server.make_server(run, {"fake": fake_provider})
+@contextlib.contextmanager
+def serving(folder):
+    server = review_server.make_server(folder, {"fake": fake_provider})
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
     try:
@@ -69,6 +70,12 @@ def served(run):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+@pytest.fixture
+def served(run):
+    with serving(run) as client:
+        yield client
 
 
 def embedded(html):
@@ -99,9 +106,11 @@ def test_the_page_shows_the_run_as_it_is_and_serves_its_files_but_nothing_outsid
     assert (page.status_code, page.headers["content-type"]) == (200, "text/html; charset=utf-8")
     data = embedded(page.text)
     assert data["editable"] is True
-    assert [(n["name"], n["previewed"], len(n["candidates"])) for n in data["needs"]] == [
+    [shown] = data["runs"]
+    assert (shown["name"], shown["status"], shown["open"]) == (run.name, "previewing", True)
+    assert [(n["name"], n["previewed"], len(n["candidates"])) for n in shown["needs"]] == [
         ("ke-woman", True, 3), ("ma-man", False, 2), ("down", False, 0)]
-    two, three, four = data["needs"][0]["candidates"]
+    two, three, four = shown["needs"][0]["candidates"]
     assert (three["id"], three["queries"], three["pass"], three["previews"][0]["failures"]) == (
         "fake-bright-3", ["bright village", "bright old village"], False, ["contrast 1.17:1 is below 3:1"])
     assert (four["previewed"], four["pass"]) == (False, None)
@@ -118,17 +127,70 @@ def test_the_page_shows_the_run_as_it_is_and_serves_its_files_but_nothing_outsid
     assert served.get("/", headers={"Host": "rebound.example"}).status_code == 403
 
 
+def test_a_server_on_a_briefs_runs_shows_each_run_as_it_is_made_newest_first(sent, tmp_path, capsys):
+    study = tmp_path / "study"
+    runs = study / "runs"
+    runs.mkdir(parents=True)
+    brief = study / "brief.yaml"
+    brief.write_text(BRIEF)
+    with serving(runs) as served:
+        empty = served.get("/state").json()
+        assert empty["runs"] == [] and embedded(served.get("/").text)["runs"] == []
+
+        cli.main(["source", str(brief), "--seed", "1"])
+        capsys.readouterr()
+        first = f"{TODAY.isoformat()}-1"
+        state = served.get("/state").json()
+        assert [(r["name"], r["status"]) for r in state["runs"]] == [(first, "previewing")]
+        assert state["digest"] != empty["digest"]
+        page = embedded(served.get("/").text)
+        assert page["state"] == state["digest"]
+        [shown] = page["runs"]
+        assert (shown["name"], shown["open"], shown["changes"]) == (first, True, None)
+        thumb = shown["needs"][0]["candidates"][0]["thumb"]
+        assert thumb.startswith(f"{first}/ke-woman/thumbs/")
+        assert served.get(f"/{thumb}").content == (runs / thumb).read_bytes()
+        assert raw_get(served, "/../brief.yaml") == 404
+        assert served.get("/%2e%2e/brief.yaml").status_code == 404
+
+        for need in ("ke-woman", "ma-man"):
+            (runs / first / need / "checks.yaml").write_text(yaml.safe_dump({"candidates": {}}))
+        ready = served.get("/state").json()
+        assert [r["status"] for r in ready["runs"]] == ["ready"]
+        reply = served.post(f"/verdicts?run={first}", json={"rated_by": "A. Author", "rated_on": TODAY.isoformat(),
+                                                           "needs": {"ke-woman": {"fake-bright-2": {"verdict": "keep"}}}})
+        assert reply.status_code == 200, reply.text
+        assert served.get("/state").json() == ready, "a save is not a new round"
+
+        brief.write_text(BRIEF.replace("bright old village", "bright old town"))
+        cli.main(["source", str(brief), "--seed", "1"])
+        capsys.readouterr()
+        second = f"{TODAY.isoformat()}-2"
+        assert [r["name"] for r in served.get("/state").json()["runs"]] == [second, first]
+        newer, older = embedded(served.get("/").text)["runs"]
+        assert (newer["name"], newer["open"], older["name"], older["open"]) == (second, True, first, False)
+        assert newer["changes"] == [{"need": "ke-woman", "change": "changed", "asks": [
+            {"kind": "search", "provider": "fake", "diff": [["=", "bright old"], ["-", "village"], ["+", "town"]]}]}]
+        assert older["rated_by"] == "A. Author" and newer["rated_by"] is None
+        assert served.post(f"/verdicts?run={second}", json={"rated_by": "A. Author", "rated_on": TODAY.isoformat(),
+                                                            "needs": {}}).status_code == 200
+        assert (runs / second / "verdicts.yaml").is_file()
+
+
 def test_an_invalid_save_is_refused_with_every_problem_and_writes_nothing(run, served):
     before = files(run)
-    reply = served.post("/verdicts", json={"rated_by": " ", "rated_on": TODAY.isoformat(), "needs": {"ke-woman": {
+    reply = served.post(f"/verdicts?run={run.name}", json={"rated_by": " ", "rated_on": TODAY.isoformat(), "needs": {"ke-woman": {
         "fake-bright-9": {"verdict": "keep"}, "fake-bright-2": {"verdict": "keep", "issues": ["blurry"]}}}})
     assert reply.status_code == 400
     assert reply.json()["errors"] == [
         "rated_by is required: the name of whoever rated",
         "ke-woman/fake-bright-9: not a candidate of ke-woman in this run",
         f"ke-woman/fake-bright-2: unknown issue 'blurry' (known: {', '.join(verdicts.ISSUES)})"]
-    assert served.post("/verdicts", content=b'{"rated_by": "A"}', headers={"Content-Type": "text/plain"}).status_code == 415
-    assert served.post("/verdicts", content=b"{not json", headers={"Content-Type": "application/json"}).status_code == 400
+    save = f"/verdicts?run={run.name}"
+    assert served.post(save, content=b'{"rated_by": "A"}', headers={"Content-Type": "text/plain"}).status_code == 415
+    assert served.post(save, content=b"{not json", headers={"Content-Type": "application/json"}).status_code == 400
+    for elsewhere in ("/verdicts", "/verdicts?run=..", "/verdicts?run=2026-01-01-1"):
+        assert served.post(elsewhere, json={"rated_by": "A"}).status_code == 404, elsewhere
     assert files(run) == before
 
 
@@ -137,7 +199,7 @@ def test_a_save_writes_verdicts_and_keep_takes_the_keeps_as_picked_by_the_rater(
         "fake-bright-2": {"verdict": "keep"},
         "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."},
         "fake-bright-4": {"verdict": "drop", "issues": ["age"]}}}}
-    reply = served.post("/verdicts", json=posted)
+    reply = served.post(f"/verdicts?run={run.name}", json=posted)
     assert reply.status_code == 200, reply.text
     assert reply.json()["saved"] == "verdicts.yaml"
     summary = reply.json()["summary"]
@@ -148,8 +210,8 @@ def test_a_save_writes_verdicts_and_keep_takes_the_keeps_as_picked_by_the_rater(
     assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {**posted, "rated_on": TODAY}
     assert [p.name for p in run.iterdir() if p.name.endswith(".tmp")] == []
     static = embedded((run / "review.html").read_text())
-    assert static["editable"] is False and static["needs"][0]["candidates"][1]["verdict"]["issues"] == ["crop"]
-    assert embedded(served.get("/").text)["rated_by"] == "A. Author"
+    assert static["editable"] is False and static["runs"][0]["needs"][0]["candidates"][1]["verdict"]["issues"] == ["crop"]
+    assert embedded(served.get("/").text)["runs"][0]["rated_by"] == "A. Author"
 
     scenes = tmp_path / "scenes"
     keep = ["keep", str(run), "--verdicts", "--need", "ke-woman", "--to", str(scenes)]
@@ -242,9 +304,24 @@ def test_review_summary_prints_the_tallies_of_either_verdicts_file(run, capsys):
         cli.main(["review", str(run), "--agent"])
 
 
+def test_review_serves_the_runs_next_to_a_brief_and_summarises_only_one_run(tmp_path, monkeypatch, capsys):
+    brief = tmp_path / "brief.yaml"
+    brief.write_text(BRIEF)
+    served = []
+    monkeypatch.setattr(cli, "serve", lambda folder, *args: served.append(folder) or 0)
+    assert cli.main(["review", str(brief)]) == 0
+    assert served == [tmp_path / "runs"] and (tmp_path / "runs").is_dir()
+    assert cli.main(["review", str(tmp_path / "runs")]) == 0
+    for summary in (["review", str(brief), "--summary"], ["review", str(tmp_path / "runs"), "--summary"],
+                    ["review", str(tmp_path / "nothing")]):
+        with pytest.raises(SystemExit):
+            cli.main(summary)
+    capsys.readouterr()
+
+
 @pytest.mark.browser
 def test_a_person_rates_on_the_page_and_saving_writes_verdicts(run, served, tmp_path):
-    tile = 'article[data-key="ke-woman/{}"]'.format
+    tile = f'article[data-key="{run.name}/ke-woman/{{}}"]'.format
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=render.chrome_path())
         try:
@@ -278,3 +355,49 @@ def test_a_person_rates_on_the_page_and_saving_writes_verdicts(run, served, tmp_
         "rated_by": "A. Author", "rated_on": RATED_ON, "needs": {"ke-woman": {
             "fake-bright-2": {"verdict": "drop"},
             "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."}}}}
+
+
+@pytest.mark.browser
+def test_the_runs_page_folds_older_runs_filters_by_verdict_and_offers_a_new_round(sent, tmp_path, capsys):
+    brief = tmp_path / "study" / "brief.yaml"
+    brief.parent.mkdir()
+    brief.write_text(BRIEF)
+    runs = brief.parent / "runs"
+    for _ in range(2):
+        cli.main(["source", str(brief), "--seed", "1"])
+    capsys.readouterr()
+    first, second, third = (f"{TODAY.isoformat()}-{n}" for n in (1, 2, 3))
+    (runs / second / "verdicts.yaml").write_text(yaml.safe_dump({"rated_by": "A. Author", "rated_on": TODAY, "needs": {
+        "ke-woman": {"fake-bright-2": {"verdict": "keep"}, "fake-bright-3": {"verdict": "drop"}}}}))
+    tile = 'article[data-key="{}/ke-woman/{}"]'.format
+    with serving(runs) as served, sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=render.chrome_path())
+        try:
+            page = browser.new_page(viewport={"width": 1600, "height": 1000})
+            page.goto(str(served.base_url))
+            expect(page.locator("details.run > summary h2")).to_have_text([second, first])
+            expect(page.locator(f"#run-{second}")).to_have_attribute("open", "")
+            expect(page.locator(tile(first, "fake-bright-2"))).to_be_hidden()
+            expect(page.locator(tile(second, "fake-bright-2"))).to_be_visible()
+
+            page.get_by_label("unrated").check()
+            expect(page.locator(tile(second, "fake-bright-2"))).to_be_hidden()
+            expect(page.locator(tile(second, "fake-bright-4"))).to_be_visible()
+            page.get_by_label("hide dropped").check()
+            expect(page.locator(tile(second, "fake-bright-2"))).to_be_visible()
+            expect(page.locator(tile(second, "fake-bright-3"))).to_be_hidden()
+            page.get_by_label("keep", exact=True).check()
+            expect(page.locator(tile(second, "fake-bright-4"))).to_be_hidden()
+            page.get_by_label("all").check()
+
+            expect(page.get_by_role("button", name="New round: show it")).to_be_hidden()
+            cli.main(["source", str(brief), "--seed", "1"])
+            capsys.readouterr()
+            offer = page.get_by_role("button", name="New round: show it")
+            expect(offer).to_be_visible(timeout=10_000)
+            offer.click()
+            expect(page.locator("details.run > summary h2")).to_have_text([third, second, first])
+            expect(page.locator(f"#run-{third}")).to_have_attribute("open", "")
+            page.screenshot(path=tmp_path / "runs.png")
+        finally:
+            browser.close()

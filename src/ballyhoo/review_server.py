@@ -1,34 +1,38 @@
-"""The review server: one run's review page on 127.0.0.1, saving verdicts.yaml when the page posts.
+"""The review server: the review page for a run, or every run of a brief, on 127.0.0.1.
 
-The shell for review.py and verdicts.py, through runs.py. GET / serves the page
-built from the run as it is on disk; GET of any other path serves that file from
-the run and nothing outside it; POST /verdicts validates the posted verdicts and
-writes verdicts.yaml whole, or writes nothing and answers 400 with every problem.
+The shell for review.py and verdicts.py, through runs.py. It holds no state:
+GET / serves the page built from the runs as they are on disk, so a run made
+while it is up appears on the next load; GET /state answers what the page polls
+to notice one; GET of any other path serves that file from inside the run or
+runs directory and nothing outside it; POST /verdicts?run=NAME validates the
+posted verdicts and writes that run's verdicts.yaml whole, or writes nothing and
+answers 400 with every problem.
 """
 import json
 import mimetypes
 import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import review, runs
 
-HOST = "127.0.0.1"  # never every interface: the server writes into the run and serves its files
+HOST = "127.0.0.1"  # never every interface: the server writes into runs and serves their files
 MAX_BODY = 10 * 1024 * 1024
 
 
-def run_file(run, request_path):
-    """The file in `run` a request path names, or None when it names no file or one outside the run."""
+def run_file(root, request_path):
+    """The file in `root` a request path names, or None when it names no file or one outside it."""
     relative = unquote(urlsplit(request_path).path).lstrip("/")
     if "\x00" in relative:
         return None
-    path = (run / relative).resolve()
-    return path if path.is_relative_to(run) and path.is_file() else None
+    path = (root / relative).resolve()
+    return path if path.is_relative_to(root) and path.is_file() else None
 
 
-def handler(run, providers):
-    run = Path(run).resolve()
+def handler(root, providers):
+    root = Path(root).resolve()
+    single = runs.is_run(root)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -56,14 +60,14 @@ def handler(run, providers):
         def do_GET(self):
             if not self.from_this_host():
                 return
-            if urlsplit(self.path).path in ("/", f"/{review.PAGE}"):
-                r, errors = runs.read_review(run, providers)
-                if errors:
-                    return self.send(500, "\n".join(errors).encode(), "text/plain; charset=utf-8")
-                return self.send(200, runs.review_page(r, editable=True).encode(), "text/html; charset=utf-8")
-            path = run_file(run, self.path)
+            request = urlsplit(self.path).path
+            if request in ("/", f"/{review.PAGE}"):
+                return self.send(200, runs.served_page(root, single, providers).encode(), "text/html; charset=utf-8")
+            if request == "/state":
+                return self.send_json(200, runs.state(root, single))
+            path = run_file(root, self.path)
             if path is None:
-                return self.send(404, b"no such file in this run", "text/plain; charset=utf-8")
+                return self.send(404, b"no such file here", "text/plain; charset=utf-8")
             self.send_response(200)
             self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
             self.send_header("Content-Length", str(path.stat().st_size))
@@ -74,8 +78,9 @@ def handler(run, providers):
         def do_POST(self):
             if not self.from_this_host():
                 return
-            if urlsplit(self.path).path != "/verdicts":
-                return self.send_json(404, {"errors": ["verdicts are posted to /verdicts"]})
+            request = urlsplit(self.path)
+            if request.path != "/verdicts":
+                return self.send_json(404, {"errors": ["verdicts are posted to /verdicts?run=NAME"]})
             # Another site's form can post text/plain to this server without the browser asking first, but not JSON.
             if self.headers.get_content_type() != "application/json":
                 return self.send_json(415, {"errors": ["verdicts must be sent as application/json"]})
@@ -89,6 +94,10 @@ def handler(run, providers):
                 data = json.loads(self.rfile.read(length))
             except ValueError as e:
                 return self.send_json(400, {"errors": [f"not JSON: {e}"]})
+            name = parse_qs(request.query).get("run", [None])[0]
+            run = next((r for r in runs.served(root, single) if r.name == name), None)
+            if run is None:
+                return self.send_json(404, {"errors": [f"no run {name!r} here to save verdicts to"]})
             reply, errors = runs.save_verdicts(run, providers, data)
             if errors:
                 return self.send_json(400, {"errors": errors})
@@ -97,9 +106,10 @@ def handler(run, providers):
     return Handler
 
 
-def make_server(run, providers, port=0):
-    """A server for one run's review page on 127.0.0.1; port 0 takes any free port. Call serve_forever to serve."""
-    return ThreadingHTTPServer((HOST, port), handler(run, providers))
+def make_server(root, providers, port=0):
+    """A review server on 127.0.0.1 for a run, or for every run in a runs directory; port 0 takes any
+    free port. Call serve_forever to serve."""
+    return ThreadingHTTPServer((HOST, port), handler(root, providers))
 
 
 def url(server):

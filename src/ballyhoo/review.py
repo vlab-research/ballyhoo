@@ -189,30 +189,31 @@ def summary_lines(summary):
     return lines
 
 
-def _path(need, ref):
-    """A file in a need's folder as a path relative to the run, where the page is; a URL as it is."""
-    return ref if ref.startswith(URL) else f"{need}/{ref}"
+def _path(folder, ref):
+    """A file in a need's folder as a path relative to the page; a URL as it is."""
+    return ref if ref.startswith(URL) else f"{folder}/{ref}"
 
 
 def _verdict(v):
     return None if v is None else {"verdict": v.verdict, "issues": list(v.issues), "note": v.note}
 
 
-def _candidate(need, c, checked, verdicts, agent):
+def _candidate(need, folder, c, checked, verdicts, agent):
     record = c.provenance
     return {
-        "id": c.id, "width": c.width, "height": c.height, "thumb": _path(need, c.thumb), "full": _path(need, c.full),
+        "id": c.id, "width": c.width, "height": c.height, "thumb": _path(folder, c.thumb),
+        "full": _path(folder, c.full),
         "source": record.get("source"), "provider": record.get("provider"),
         "queries": list(c.queries), "prompt": record.get("prompt"),
         "alt": record.get("alt") or record.get("title"),  # Pexels describes a photo in alt, Openverse in title
         **{k: record.get(k) for k in ("creator", "creator_url", "page_url", "licence", "licence_url", "model", "seed",
                                       "style")},
-        "cutout": c.cutout and {"file": _path(need, c.cutout.file), "key": list(c.cutout.key),
+        "cutout": c.cutout and {"file": _path(folder, c.cutout.file), "key": list(c.cutout.key),
                                 "pass": c.cutout.ok, "failures": list(c.cutout.failures)},
         "previewed": checked is not None,
         "pass": checked.get("pass") if checked else None,
         "previews": [{"template": template, "status": p.get("status"),
-                      "file": _path(need, p["file"]) if p.get("file") else None,
+                      "file": _path(folder, p["file"]) if p.get("file") else None,
                       "summary": p.get("summary"), "failures": list(p.get("failures", []))}
                      for template, p in (checked or {}).get("previews", {}).items()],
         "verdict": _verdict(verdicts.get(need, c.id) if verdicts else None),
@@ -220,26 +221,51 @@ def _candidate(need, c, checked, verdicts, agent):
     }
 
 
-def page_data(run, needs, found, checks, verdicts, agent, editable):
-    """The review page's data.
+def run_data(needs, found, checks, verdicts, agent, base=""):
+    """One run's part of the review page's data.
 
-    `run` is the run's name; `needs` maps each need in the brief to its text, in brief order; `found`
-    maps each need with a candidates file to its candidates; `checks` maps each previewed need to its
-    loaded checks.yaml; `verdicts` and `agent` are the run's verdicts and agent verdicts, or None.
-    `editable` says whether a server is behind the page to save to.
+    `needs` maps each need in the run's brief to its text, in brief order; `found` maps each need
+    with a candidates file to its candidates; `checks` maps each previewed need to its loaded
+    checks.yaml; `verdicts` and `agent` are the run's verdicts and agent verdicts, or None. `base`
+    is the run folder's path from the page, with its trailing slash: empty for a page in the run.
     """
     tallies = summary(found, verdicts)
     return {
-        "run": run, "editable": editable, "verdicts": list(VERDICTS), "issues": dict(ISSUES),
         "rated_by": verdicts.rated_by if verdicts else None,
         "rated_on": verdicts.rated_on.isoformat() if verdicts else None,
         "agent": {"rated_by": agent.rated_by, "rated_on": agent.rated_on.isoformat()} if agent else None,
         "needs": [{"name": name, "need": text, "has_candidates": name in found, "previewed": name in checks,
                    "copy": checks[name].get("copy") if name in checks else None, "summary": tallies.get(name),
-                   "candidates": [_candidate(name, c, checks.get(name, {}).get("candidates", {}).get(c.id),
-                                             verdicts, agent) for c in found.get(name, [])]}
+                   "candidates": [_candidate(name, f"{base}{name}", c,
+                                             checks.get(name, {}).get("candidates", {}).get(c.id), verdicts, agent)
+                                  for c in found.get(name, [])]}
                   for name, text in needs.items()],
     }
+
+
+def page_data(runs, editable, digest):
+    """The review page's data: its runs newest first, the newest sourced one open and the rest folded.
+
+    Each of `runs` is {"name", "status", "errors", "requests", "data"}: `requests` is the manifest's,
+    or None when there is no readable manifest; `data` is run_data, or None when the run cannot be
+    shown yet or has errors. Each run's changes are against the next older run with requests, and
+    None for the oldest. `editable` says whether a server is behind the page to save to; `digest` is
+    the state digest the page compares with /state's.
+    """
+    by_name = {r["name"]: r for r in runs}
+    ordered = [by_name[n] for n in run_order(list(by_name))]
+    opened = next((r["name"] for r in ordered if r["status"] != "sourcing"), None)
+    shown = []
+    for i, r in enumerate(ordered):
+        older = next((o for o in ordered[i + 1:] if o["requests"] is not None), None)
+        date, number = run_name(r["name"]) or (None, None)
+        shown.append({
+            "name": r["name"], "date": date, "number": number, "status": r["status"], "errors": list(r["errors"]),
+            "open": r["name"] == opened,
+            "changes": changes(asks(older["requests"]), asks(r["requests"]))
+            if older and r["requests"] is not None else None,
+            **(r["data"] or {"rated_by": None, "rated_on": None, "agent": None, "needs": []})})
+    return {"editable": editable, "verdicts": list(VERDICTS), "issues": dict(ISSUES), "state": digest, "runs": shown}
 
 
 def page(template, data):
