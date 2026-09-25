@@ -1,6 +1,6 @@
 import datetime
 
-from ballyhoo.verdicts import ISSUES, Verdict, Verdicts, as_json, dump, keep_plan, parse, picks
+from ballyhoo.verdicts import ISSUES, Verdict, Verdicts, as_json, dump, keep_plan, marked, merge, parse, picks
 
 RUN = {"ke-woman": ["fake-1", "fake-2", "fake-3"], "ma-man": ["fake-1", "gemini-abc"]}
 ON = datetime.date(2026, 9, 14)
@@ -98,3 +98,62 @@ def test_keep_refuses_no_verdicts_agent_verdicts_an_unknown_need_and_a_need_with
     assert keep_plan(verdicts, False, RUN, "ke-man") == (
         [], ["ke-man: not a need with candidates in this run (needs: ke-woman, ma-man)"])
     assert keep_plan(verdicts, False, RUN, "ma-man") == ([], ["ma-man: no candidate is rated keep in verdicts.yaml"])
+
+
+LATER = datetime.date(2026, 9, 15)
+
+
+def mark(candidate, entry, need="ke-woman", rated_by="A. Author"):
+    return {"rated_by": rated_by, "need": need, "candidate": candidate, "entry": entry}
+
+
+def test_a_first_mark_starts_the_runs_verdicts_under_the_raters_name():
+    verdicts, errors = merge(None, mark("fake-2", {"verdict": "keep", "issues": ["crop"]}, rated_by=" A. Author "),
+                             RUN, ON)
+    assert errors == []
+    assert verdicts == Verdicts("A. Author", ON, {"ke-woman": {"fake-2": Verdict("keep", ("crop",))}})
+
+
+def test_a_mark_replaces_that_candidates_entry_keeps_the_others_and_dates_the_file_today():
+    current, _ = parse(data({"ke-woman": {"fake-1": {"verdict": "keep"}, "fake-2": {"verdict": "drop"}},
+                             "ma-man": {"fake-1": {"verdict": "maybe"}}}), RUN)
+    verdicts, errors = merge(current, mark("fake-2", {"verdict": "maybe", "note": "Better cropped."}), RUN, LATER)
+    assert errors == []
+    assert verdicts.rated_on == LATER
+    assert verdicts.needs == {"ke-woman": {"fake-1": Verdict("keep"), "fake-2": Verdict("maybe", (), "Better cropped.")},
+                              "ma-man": {"fake-1": Verdict("maybe")}}
+
+
+def test_clearing_a_mark_removes_the_entry_and_a_need_left_empty():
+    current, _ = parse(data({"ke-woman": {"fake-1": {"verdict": "keep"}}, "ma-man": {"fake-1": {"verdict": "drop"}}}), RUN)
+    verdicts, errors = merge(current, mark("fake-1", None, need="ma-man"), RUN, ON)
+    assert errors == [] and verdicts.needs == {"ke-woman": {"fake-1": Verdict("keep")}}
+    assert merge(current, mark("fake-3", None), RUN, ON) == (current, [])
+
+
+def test_a_run_whose_last_mark_is_cleared_is_rated_by_nobody():
+    current, _ = parse(data({"ke-woman": {"fake-1": {"verdict": "keep"}}}), RUN)
+    cleared, _ = merge(current, mark("fake-1", None), RUN, ON)
+    assert not marked(cleared) and not marked(None) and marked(current)
+    verdicts, errors = merge(cleared, mark("fake-1", {"verdict": "drop"}, rated_by="B. Other"), RUN, ON)
+    assert errors == [] and verdicts.rated_by == "B. Other"
+
+
+def test_a_mark_from_a_second_person_is_refused():
+    current, _ = parse(data({"ke-woman": {"fake-1": {"verdict": "keep"}}}), RUN)
+    assert merge(current, mark("fake-2", {"verdict": "keep"}, rated_by="B. Other"), RUN, ON) == (None, [
+        "this run is rated by A. Author, and one person rates a run, so a mark from B. Other is not saved"])
+
+
+def test_a_mark_is_validated_with_the_whole_file_and_every_problem_reported():
+    assert merge(None, {"rated_by": "", "need": ["ke-woman"], "entry": "keep", "run": "x"}, RUN, ON) == (None, [
+        "unknown key 'run'", "rated_by is required: the name of whoever rated", "need and candidate must be named",
+        "entry must be a verdict map, or null to clear the mark"])
+    assert merge(None, "keep", RUN, ON) == (None, ["a mark is a map with rated_by, need, candidate, entry"])
+    assert merge(None, mark("fake-1", {"issues": ["crop"]}), RUN, ON) == (None, [
+        "choose keep, maybe or drop: issues and a note are saved with a verdict"])
+    assert merge(None, mark("fake-9", {"verdict": "keep", "issues": ["blurry"]}), RUN, ON) == (None, [
+        "ke-woman/fake-9: not a candidate of ke-woman in this run",
+        f"ke-woman/fake-9: unknown issue 'blurry' (known: {', '.join(ISSUES)})"])
+    assert merge(None, mark("fake-1", {"verdict": "keep"}, need="down"), RUN, ON)[1] == [
+        "down: not a need with candidates in this run"]

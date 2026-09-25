@@ -27,6 +27,7 @@ ISSUES = {
 }
 KEYS = ("rated_by", "rated_on", "needs")
 ENTRY_KEYS = ("verdict", "issues", "note")
+MARK_KEYS = ("rated_by", "need", "candidate", "entry")
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,47 @@ def dump(verdicts):
 def as_json(verdicts):
     """A verdicts map as data for JSON, whose dates are strings."""
     return {**dump(verdicts), "rated_on": verdicts.rated_on.isoformat()}
+
+
+def marked(verdicts):
+    """Whether a verdicts map rates any candidate. A run whose verdicts rate none is rated by nobody."""
+    return verdicts is not None and any(verdicts.needs.values())
+
+
+def merge(current, mark, run, today):
+    """A run's verdicts with one mark from the review page merged in. Returns (Verdicts or None, errors).
+
+    `current` is the run's verdicts, None when it has none. `mark` is what the page posted: rated_by,
+    need, candidate, and entry, the candidate's verdict map as in the file, or None to clear its mark.
+    `run` is as parse takes it. One person rates a run, so a mark from anyone but the person who rated
+    it is refused. The merged map is validated whole, by parse, and is dated `today`.
+    """
+    if not isinstance(mark, dict):
+        return None, [f"a mark is a map with {', '.join(MARK_KEYS)}"]
+    errors = _unknown("", mark, MARK_KEYS)
+    rated_by, need, candidate, entry = (mark.get(k) for k in MARK_KEYS)
+    if not isinstance(rated_by, str) or not rated_by.strip():
+        errors.append("rated_by is required: the name of whoever rated")
+    if not isinstance(need, str) or not isinstance(candidate, str):
+        errors.append("need and candidate must be named")
+    if entry is not None and not isinstance(entry, dict):
+        errors.append("entry must be a verdict map, or null to clear the mark")
+    elif entry is not None and entry.get("verdict") is None:
+        errors.append("choose keep, maybe or drop: issues and a note are saved with a verdict")
+    if errors:
+        return None, errors
+    rated_by = rated_by.strip()
+    if marked(current) and current.rated_by != rated_by:
+        return None, [f"this run is rated by {current.rated_by}, and one person rates a run, "
+                      f"so a mark from {rated_by} is not saved"]
+    needs = dump(current)["needs"] if current else {}
+    if entry is None:
+        needs.get(need, {}).pop(candidate, None)
+        if need in needs and not needs[need]:
+            del needs[need]
+    else:
+        needs.setdefault(need, {})[candidate] = entry
+    return parse({"rated_by": rated_by, "rated_on": today, "needs": needs}, run)
 
 
 def picks(verdicts, need):
