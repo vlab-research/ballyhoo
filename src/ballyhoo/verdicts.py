@@ -8,7 +8,7 @@ loads the files and knows the run's candidates; this module decides whether a
 verdicts map is valid, and what it picks.
 """
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 FILE = "verdicts.yaml"
 AGENT_FILE = "agent-verdicts.yaml"
@@ -25,9 +25,9 @@ ISSUES = {
     "brand": "a visible brand or logo",
     "crop": "no room for the headline",
 }
-KEYS = ("rated_by", "rated_on", "needs")
+KEYS = ("rated_by", "rated_on", "needs", "notes")
 ENTRY_KEYS = ("verdict", "issues", "note")
-MARK_KEYS = ("rated_by", "need", "candidate", "entry")
+MARK_KEYS = ("rated_by", "need", "candidate", "entry", "note")
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class Verdicts:
     rated_by: str
     rated_on: datetime.date
     needs: dict  # need -> candidate id -> Verdict
+    notes: dict = field(default_factory=dict)  # need -> a note on the need's candidates as a whole
 
     def get(self, need, candidate):
         return self.needs.get(need, {}).get(candidate)
@@ -103,6 +104,8 @@ def parse(data, run):
     rated_on = _date(data.get("rated_on"))
     if rated_on is None:
         errors.append(f"rated_on must be a date, e.g. 2026-09-14, not {data.get('rated_on')!r}")
+    notes, problems = _notes(data.get("notes", {}), run)
+    errors += problems
     raw_needs = data.get("needs", {})
     if not isinstance(raw_needs, dict):
         return None, errors + ["needs must be a map of need -> candidate id -> verdict"]
@@ -125,7 +128,22 @@ def parse(data, run):
                 needs[need][candidate] = verdict
     if errors:
         return None, errors
-    return Verdicts(rated_by.strip(), rated_on, needs), []
+    return Verdicts(rated_by.strip(), rated_on, needs, notes), []
+
+
+def _notes(raw, run):
+    """The notes on needs as a whole: need -> text. An empty note is no note. Returns (notes, errors)."""
+    if not isinstance(raw, dict):
+        return {}, ["notes must be a map of need -> text"]
+    notes, errors = {}, []
+    for need, note in raw.items():
+        if need not in run:
+            errors.append(f"notes/{need}: not a need with candidates in this run")
+        elif note is not None and not isinstance(note, str):
+            errors.append(f"notes/{need}: a note must be text")
+        elif (note or "").strip():
+            notes[need] = note.strip()
+    return notes, errors
 
 
 def dump(verdicts):
@@ -134,7 +152,8 @@ def dump(verdicts):
             "needs": {need: {c: {"verdict": v.verdict, **({"issues": list(v.issues)} if v.issues else {}),
                                  **({"note": v.note} if v.note else {})}
                              for c, v in entries.items()}
-                      for need, entries in verdicts.needs.items()}}
+                      for need, entries in verdicts.needs.items()},
+            **({"notes": dict(verdicts.notes)} if verdicts.notes else {})}
 
 
 def as_json(verdicts):
@@ -143,44 +162,55 @@ def as_json(verdicts):
 
 
 def marked(verdicts):
-    """Whether a verdicts map rates any candidate. A run whose verdicts rate none is rated by nobody."""
-    return verdicts is not None and any(verdicts.needs.values())
+    """Whether a verdicts map rates any candidate or notes any need. A run with neither is rated by nobody."""
+    return verdicts is not None and (any(verdicts.needs.values()) or bool(verdicts.notes))
 
 
 def merge(current, mark, run, today):
     """A run's verdicts with one mark from the review page merged in. Returns (Verdicts or None, errors).
 
     `current` is the run's verdicts, None when it has none. `mark` is what the page posted: rated_by,
-    need, candidate, and entry, the candidate's verdict map as in the file, or None to clear its mark.
-    `run` is as parse takes it. One person rates a run, so a mark from anyone but the person who rated
-    it is refused. The merged map is validated whole, by parse, and is dated `today`.
+    need, and either candidate and entry, the candidate's verdict map as in the file or None to clear
+    its mark, or note, the need's note, empty to clear it. `run` is as parse takes it. One person
+    rates a run, so a mark from anyone but the person who rated it is refused; a note is a mark too.
+    The merged map is validated whole, by parse, and is dated `today`.
     """
     if not isinstance(mark, dict):
-        return None, [f"a mark is a map with {', '.join(MARK_KEYS)}"]
+        return None, ["a mark is a map with rated_by, need, and candidate and entry, or note"]
     errors = _unknown("", mark, MARK_KEYS)
-    rated_by, need, candidate, entry = (mark.get(k) for k in MARK_KEYS)
+    rated_by, need, candidate, entry, note = (mark.get(k) for k in MARK_KEYS)
+    noting = "note" in mark
     if not isinstance(rated_by, str) or not rated_by.strip():
         errors.append("rated_by is required: the name of whoever rated")
-    if not isinstance(need, str) or not isinstance(candidate, str):
-        errors.append("need and candidate must be named")
-    if entry is not None and not isinstance(entry, dict):
-        errors.append("entry must be a verdict map, or null to clear the mark")
-    elif entry is not None and entry.get("verdict") is None:
-        errors.append("choose keep, maybe or drop: issues and a note are saved with a verdict")
+    if noting:
+        if "candidate" in mark or "entry" in mark:
+            errors.append("a mark is a note on a need or a verdict on a candidate, not both")
+        if not isinstance(need, str):
+            errors.append("need must be named")
+    else:
+        if not isinstance(need, str) or not isinstance(candidate, str):
+            errors.append("need and candidate must be named")
+        if entry is not None and not isinstance(entry, dict):
+            errors.append("entry must be a verdict map, or null to clear the mark")
+        elif entry is not None and entry.get("verdict") is None:
+            errors.append("choose keep, maybe or drop: issues and a note are saved with a verdict")
     if errors:
         return None, errors
     rated_by = rated_by.strip()
     if marked(current) and current.rated_by != rated_by:
         return None, [f"this run is rated by {current.rated_by}, and one person rates a run, "
                       f"so a mark from {rated_by} is not saved"]
-    needs = dump(current)["needs"] if current else {}
-    if entry is None:
+    before = dump(current) if current else {}
+    needs, notes = before.get("needs", {}), before.get("notes", {})
+    if noting:
+        notes[need] = note
+    elif entry is None:
         needs.get(need, {}).pop(candidate, None)
         if need in needs and not needs[need]:
             del needs[need]
     else:
         needs.setdefault(need, {})[candidate] = entry
-    return parse({"rated_by": rated_by, "rated_on": today, "needs": needs}, run)
+    return parse({"rated_by": rated_by, "rated_on": today, "needs": needs, "notes": notes}, run)
 
 
 def picks(verdicts, need):

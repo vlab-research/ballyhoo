@@ -4,9 +4,9 @@ The shell for review.py and verdicts.py, through runs.py. It holds no state:
 GET / serves the page built from the runs as they are on disk, so a run made
 while it is up appears on the next load; GET /state answers what the page polls
 to notice one; GET of any other path serves that file from inside the run or
-runs directory and nothing outside it; POST /verdicts takes one mark on one
-candidate of a run and merges it into that run's verdicts.yaml, or writes
-nothing and answers 400 with every problem.
+runs directory and nothing outside it; POST /verdicts takes one mark, a verdict on a
+candidate or a note on a need, and merges it into that run's verdicts.yaml, or
+writes nothing and answers 400 with every problem.
 """
 import datetime
 import json
@@ -98,7 +98,7 @@ def handler(root, providers):
             except ValueError as e:
                 return self.send_json(400, {"errors": [f"not JSON: {e}"]})
             if not isinstance(data, dict):
-                return self.send_json(400, {"errors": ["a mark is a map with run, rated_by, need, candidate, entry"]})
+                return self.send_json(400, {"errors": ["a mark is a map with run, rated_by, need, and candidate and entry, or note"]})
             name = data.get("run")
             run = next((r for r in runs.served(root, single) if r.name == name), None)
             if run is None:

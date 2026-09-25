@@ -149,7 +149,8 @@ def test_a_mark_is_validated_with_the_whole_file_and_every_problem_reported():
     assert merge(None, {"rated_by": "", "need": ["ke-woman"], "entry": "keep", "run": "x"}, RUN, ON) == (None, [
         "unknown key 'run'", "rated_by is required: the name of whoever rated", "need and candidate must be named",
         "entry must be a verdict map, or null to clear the mark"])
-    assert merge(None, "keep", RUN, ON) == (None, ["a mark is a map with rated_by, need, candidate, entry"])
+    assert merge(None, "keep", RUN, ON) == (None, [
+        "a mark is a map with rated_by, need, and candidate and entry, or note"])
     assert merge(None, mark("fake-1", {"issues": ["crop"]}), RUN, ON) == (None, [
         "choose keep, maybe or drop: issues and a note are saved with a verdict"])
     assert merge(None, mark("fake-9", {"verdict": "keep", "issues": ["blurry"]}), RUN, ON) == (None, [
@@ -157,3 +158,54 @@ def test_a_mark_is_validated_with_the_whole_file_and_every_problem_reported():
         f"ke-woman/fake-9: unknown issue 'blurry' (known: {', '.join(ISSUES)})"])
     assert merge(None, mark("fake-1", {"verdict": "keep"}, need="down"), RUN, ON)[1] == [
         "down: not a need with candidates in this run"]
+
+
+def note(need, text, rated_by="A. Author"):
+    return {"rated_by": rated_by, "need": need, "note": text}
+
+
+def test_a_note_on_a_need_parses_beside_the_verdicts_and_an_empty_one_is_no_note():
+    raw = {**data({"ke-woman": {"fake-1": {"verdict": "keep"}}}),
+           "notes": {"ke-woman": " Less pensive. ", "ma-man": "  "}}
+    verdicts, errors = parse(raw, RUN)
+    assert errors == [] and verdicts.notes == {"ke-woman": "Less pensive."}
+    assert dump(verdicts)["notes"] == {"ke-woman": "Less pensive."}
+    assert parse(dump(verdicts), RUN) == (verdicts, [])
+    assert "notes" not in dump(parse(data({}), RUN)[0])
+
+
+def test_a_note_must_be_text_on_a_need_the_run_has():
+    assert parse({**data({}), "notes": {"nowhere": "x", "ma-man": 3}}, RUN) == (None, [
+        "notes/nowhere: not a need with candidates in this run", "notes/ma-man: a note must be text"])
+    assert parse({**data({}), "notes": ["x"]}, RUN) == (None, ["notes must be a map of need -> text"])
+
+
+def test_a_note_alone_is_a_mark_that_starts_the_runs_verdicts_and_clearing_it_leaves_them_rated_by_nobody():
+    verdicts, errors = merge(None, note("ma-man", "None of these look 50."), RUN, ON)
+    assert errors == []
+    assert verdicts == Verdicts("A. Author", ON, {}, {"ma-man": "None of these look 50."})
+    assert marked(verdicts)
+    cleared, errors = merge(verdicts, note("ma-man", ""), RUN, LATER)
+    assert errors == [] and cleared.notes == {} and not marked(cleared)
+
+
+def test_a_note_replaces_the_needs_note_and_keeps_every_verdict_and_other_note():
+    current, _ = parse({**data({"ke-woman": {"fake-1": {"verdict": "keep"}}}),
+                        "notes": {"ke-woman": "Less pensive.", "ma-man": "Older."}}, RUN)
+    verdicts, errors = merge(current, note("ke-woman", "Warmer light."), RUN, LATER)
+    assert errors == []
+    assert verdicts == Verdicts("A. Author", LATER, {"ke-woman": {"fake-1": Verdict("keep")}},
+                                {"ke-woman": "Warmer light.", "ma-man": "Older."})
+    verdicts, _ = merge(verdicts, mark("fake-1", None), RUN, LATER)
+    assert verdicts.needs == {} and marked(verdicts), "a note keeps the run rated when its verdicts are cleared"
+
+
+def test_a_note_from_a_second_person_is_refused_and_a_note_is_checked_like_any_mark():
+    current, _ = parse({**data({}), "notes": {"ke-woman": "Less pensive."}}, RUN)
+    assert merge(current, note("ke-woman", "Mine.", rated_by="B. Other"), RUN, ON) == (None, [
+        "this run is rated by A. Author, and one person rates a run, so a mark from B. Other is not saved"])
+    assert merge(None, {**note("ke-woman", "x"), "candidate": "fake-1"}, RUN, ON) == (None, [
+        "a mark is a note on a need or a verdict on a candidate, not both"])
+    assert merge(None, note(None, "x"), RUN, ON) == (None, ["need must be named"])
+    assert merge(None, note("down", "x"), RUN, ON) == (None, ["notes/down: not a need with candidates in this run"])
+    assert merge(None, note("ke-woman", 3), RUN, ON) == (None, ["notes/ke-woman: a note must be text"])

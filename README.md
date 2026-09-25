@@ -435,9 +435,12 @@ needs:                            # need -> candidate id -> verdict
     pexels-7544779:
       verdict: drop
       issues: [age]
+notes:                            # optional: need -> a note on its candidates as a whole
+  ea-woman: Less pensive, and none of these look 50.
 ```
 
 Every need and candidate must be in the run, and a candidate with no entry is unrated.
+A note is on a need with candidates in the run; an empty one is no note.
 Verdicts are keyed by need because one photo can be a candidate of two needs, and is
 judged against each.
 
