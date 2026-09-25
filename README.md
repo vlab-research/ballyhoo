@@ -73,11 +73,12 @@ One self-contained HTML file per design per size, named `<W>x<H>.html`.
   `data-min-contrast` (default 3) and `data-collide-margin` (px, default 4),
   optional.
 - Inside `#headline`, one element whose only content is `{{text}}`.
-- `#figure`, optional: the cut-out the headline must not touch.
+- `#figure`, optional: the cut-out the headline must not touch. As an
+  `<img id="figure" src="…">` it is also the slot `preview` fills with a drawing.
 - `#scene`, optional: `<img id="scene" src="…">`, a photo. It fails when drawn more
-  than 1.25× its image's size, and it is the image `preview` replaces with each
-  candidate. Give it a real `src` (a kept photo, or a placeholder with provenance)
-  so the template also renders on its own.
+  than 1.25× its image's size, and it is the slot `preview` fills with a photograph.
+  Give either slot a real `src` (a kept image, or a placeholder with provenance) so
+  the template also renders on its own.
 - Images, CSS images and fonts by relative path from the template. Pin fonts with
   `@font-face`; never rely on system fonts. Every image needs provenance (below).
 - Use unitless `line-height` and `em` spacing so they scale when autofit shrinks
@@ -111,7 +112,7 @@ picked: {by: A. Author, on: 2026-09-12}
 | `source` | Required besides `sha256` |
 |---|---|
 | `stock` | `provider`, `id`, `page_url`, `creator`, `licence`, `licence_url`, `query`, `fetched`, `picked` (`creator_url` and `search_options` optional). A photo downloaded before provenance existed is marked `backfilled: <date>` and may omit `query` |
-| `generated` | `provider`, `model`, `prompt`, `seed`, `generated`, `picked` |
+| `generated` | `provider`, `model`, `prompt`, `seed`, `generated`, `picked`. A drawing kept as a cut-out also carries `style`, `key_colour`, and `raw_sha256`, the digest of the generation it was cut from |
 | `made` | `by` (who made it, and the source document), `rights` (on what terms we use it) |
 
 `picked.by` names the person who chose the image. For art a person made, such as
@@ -141,6 +142,7 @@ A candidates directory holds:
 | `thumbs/<id>.jpg` | 640 px on the long edge, for review pages |
 | `sheet-01.png` … | contact sheets, 20 to a sheet, numbered by `n` |
 | `generated/<id>.<ext>` | generated images, as delivered |
+| `cutouts/<id>.png` | a drawing with its ground keyed out (§ Drawings): what its previews show and `keep` keeps |
 
 Searches and generations append to the directory. Ids are `<provider>-<provider's
 id>` for stock and `<provider>-<first 12 hex digits of sha256>` for generated
@@ -156,8 +158,27 @@ images, so the same image is never listed twice and numbers never change.
 
 A missing credential is an error naming the variable. `keep` writes the bytes the
 provider delivered, never re-encoded (that would strip C2PA credentials); never
-overwrites a file; and refuses a download that is not a JPEG, PNG or WebP. None of
-the generators return transparency, so kept images are scenes, not cut-outs.
+overwrites a file; and refuses a download that is not a JPEG, PNG or WebP. No
+generator returns transparency, so a drawing is generated on flat green and cut out
+here (§ Drawings); the cut-out is what is kept, and the generation stays beside it.
+
+### Drawings
+
+A drawing is a generation that names a `style` and a `subject` (§ Briefs and runs).
+Its prompt is assembled from the subject, the style, the style's `guards` and
+`framing`, the brief's `prompt_suffix`, and a sentence asking for a flat chroma-key
+green ground. The generation is saved as delivered in `generated/`, and a colour key,
+read from the image's border, cuts the figure out to `cutouts/<id>.png`. Alpha ramps
+with distance from the key only within a few pixels of the ground, so paint inside
+the figure stays opaque however green or pale it is.
+
+Every cut-out's mask is checked, and what the check finds is recorded for a person to
+judge, never acted on: a ground that is not green, too little or too much
+transparency, a soft edge, stray specks, and the key's green left in or painted on
+the figure. The candidate's entry in `candidates.yaml` gains
+`cutout: {file, key, mask: {pass, failures}}`. A figure drawn to the edges of the
+frame, leaving no border to read the key from, and a pale, washed-out ground are
+not cut out cleanly.
 
 ## Briefs and runs
 
@@ -179,6 +200,12 @@ defaults:                         # shared by every need; each can be set per ne
     templates: [photo-band/1080x1080]       # <design>/<W>x<H> in the designs directory
     copy: "Take a short survey and get KES 100 airtime."
 
+styles:                           # how drawings are drawn; a named map, like the needs
+  precise-pastel:
+    style: The picture is hand drawn, extremely detailed … - pastel palette.
+    guards: No lettering, signs, logos or brand names anywhere.    # optional
+    framing: One figure, waist up, filling the frame.              # optional
+
 ea-woman:
   need: A woman who reads as East African, middle-aged, in a photo that stops the scroll.
   search:
@@ -192,10 +219,16 @@ ea-woman:
       prompt: A woman in her fifties outside her home.
       model: fal-ai/flux-2-max    # default: the provider's model
       seed: 81                    # default: --seed, else random
+
+na-woman-drawn:
+  need: A drawing of a woman who reads as North African or Arab, about 45 to 55.
+  generate:                       # a style and a subject, instead of a prompt, make it a drawing
+    gemini: {style: precise-pastel, subject: A cool woman in her fifties from Casablanca.}
+  preview: {templates: [figure-band/1080x1080], copy: "Répondez à une courte enquête."}
 ```
 
-- Needs are a named map, and need names are lowercase slugs. `designs` and
-  `defaults` are reserved.
+- Needs are a named map, and need names are lowercase slugs. `designs`, `defaults`
+  and `styles` are reserved.
 - `need` is required: it is what a person rates candidates against. A need has
   `search`, `generate`, or both.
 - A setting in a need replaces the default whole: a need's `preview` names its `templates`
@@ -205,8 +238,11 @@ ea-woman:
   options. Pexels takes `orientation` (`landscape`, `portrait` or `square`); Openverse takes
   none. An option a provider does not accept is an error naming it and listing what it does
   take, and so is a value it cannot use, both before anything is sent.
-- Generation options: `prompt` (required), `model`, `seed`, and for Gemini
-  `image_size` (`1K`, `2K` or `4K`; default `2K`).
+- Generation options: `model`, `seed`, and for Gemini `image_size` (`1K`, `2K` or
+  `4K`; default `2K`). A generation either writes its `prompt` out, which makes a
+  photograph, or names a `style` and a `subject`, which makes a drawing (§ Drawings).
+  An unknown style, a style without a subject, and a style beside a written-out
+  prompt are all errors.
 - Paths resolve relative to the brief. Every mistake (unknown providers or keys, a
   missing `need`, a template that does not exist) is reported together, and
   nothing is sent.
@@ -233,7 +269,7 @@ thinking tokens add a little.
 | `--out DIR` | the directory runs go in (default: `runs/` next to the brief) |
 
 ```
-runs/2026-09-14-1/         <date>-<n>; a second run that day is -2, and no run is written into again
+runs/2026-09-14-1/         <UTC date>-<n>; a second run that day is -2, and no run is written into again
   brief.yaml               the brief as it was run; its relative paths mean what they meant beside the original
   manifest.yaml            what ran
   ea-woman/                a candidates directory (above), with stock originals in originals/
@@ -261,6 +297,10 @@ errors:
 - 'ea-woman/gemini generate: seed 82: no image (finish reason IMAGE_SAFETY)'
 ```
 
+A drawing's request also records its `style`, how many images were `cut_out`, and
+how many of those failed the mask check (`mask_failed`), which is a count for a
+person to look at, not an error.
+
 For a search, `new` counts the results that no earlier query for the same need
 found in this run, and `already_found` counts the rest. A photo is downloaded
 once. Its provenance keeps the first query that found it, and its `queries` in
@@ -274,13 +314,16 @@ A person then rates an ad, not a raw photo.
 
     uv run ballyhoo preview runs/2026-09-14-1
 
-- The candidate replaces the template's `<img id="scene">` in the page. The template
-  file is never copied or changed.
+- A photograph replaces the template's `<img id="scene">` in the page, and a
+  drawing's cut-out its `<img id="figure">`. The cut-out keeps its proportions inside
+  the figure's box (`object-fit: contain`), standing on the box's bottom edge. A
+  candidate goes into each of its need's templates that has its slot; the others are
+  passed over. The template file is never copied or changed.
 - A preview is not an ad. It is written inside the run, never to `out/`, whether or
   not it passes. The image the candidate replaces needs no provenance; every other
   image the template shows still does.
-- Mistakes are reported together, and then nothing renders: a template with no
-  `<img id="scene">`, a file a template references that is missing or has no
+- Mistakes are reported together, and then nothing renders: a kind of candidate that
+  none of its need's templates has a slot for, a file a template references that is missing or has no
   provenance, a need with candidates but no preview templates.
 - A need with no candidates (every request for it failed) is skipped and named.
 - Running it again, say after editing a template, re-renders every preview and
