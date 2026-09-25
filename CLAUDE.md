@@ -31,6 +31,35 @@ contracts go in `README.md`; rationale and lessons go in `docs/design.md`.
 A template's header comment is its documentation: what it is based on, where its
 placements came from, and any deliberate departure from the source design.
 
+## Code comments
+
+A comment lives exactly as long as the lines it annotates, so write only what
+will stay true for that long.
+
+1. **Comments are not a changelog.** Don't narrate the change: no "previously",
+   "now", "changed from X to Y", "fixed the bug where", dates, or incident
+   stories. That history goes in the commit message; a lesson worth keeping goes
+   in `docs/design.md`.
+2. **Comments are not notes to a reviewer.** Don't justify the diff, answer
+   review feedback, or record what you were asked to do ("as requested", "this
+   addresses", "note: I also"). That goes in the PR description.
+3. **Comments explain what the code can't.** Write one when a decision isn't
+   evident from the code (why this approach, why this value, why the obvious
+   simpler version is wrong) or when the intent is ambiguous. If the code already
+   says it, don't comment.
+
+In practice:
+- Before writing a comment, ask: would it be true and useful to someone reading
+  this file in a year who never saw this change? If not, it doesn't belong in the
+  code.
+- A guard against a real failure deserves a comment. State the failure it
+  prevents ("Chrome reports 0 height until the font loads, so wait for
+  `document.fonts.ready`"), not when or how it was discovered.
+- Keep it to a line or two. Rationale that needs a paragraph belongs in
+  `docs/design.md`; the comment can point there.
+- Don't grow an existing comment to describe your change. Rewrite it to describe
+  the code as it now is, or delete it if the code no longer needs it.
+
 ## Core principles
 
 ### 1. Clarify before you code
