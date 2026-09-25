@@ -90,6 +90,15 @@ def test_a_drawing_on_anything_but_green_is_reported_rather_than_keyed_silently(
                                             "the drawing was not generated on green")
 
 
+def test_paint_near_the_key_inside_the_figure_stays_opaque_and_a_gap_of_ground_does_not():
+    image = figure()
+    image[100:140, 100:140] = (60, 190, 70)  # a pale green 71 from the key: between NEAR and FAR
+    image[150:160, 115:125] = GREEN          # the ground, seen through a gap in the figure
+    cut, _ = cut_out(image)
+    assert (cut[105:135, 105:135, 3] == 255).all(), "paint inside the figure is not the ground"
+    assert (cut[152:158, 117:123, 3] == 0).all(), "ground is ground wherever it shows"
+
+
 def test_green_in_the_drawing_itself_is_kept_and_reported_for_a_person_to_judge():
     image, key = cut_out(figure(colour=SHIRT))
     assert (image[INSIDE][..., :3] == SHIRT).all(), "a green the key cannot reach is the artist's, not spill"

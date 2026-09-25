@@ -20,6 +20,9 @@ BACKGROUND = ("The whole background is one completely flat, solid chroma-key gre
 
 BORDER = 8             # px band around the edge the key colour is read from
 NEAR, FAR = 30.0, 110.0  # colour distance from the key: transparent at NEAR, opaque at FAR
+# How far from the ground the NEAR-FAR ramp reaches. Beyond it every pixel is the figure: a pale or
+# greenish paint inside a shirt can be within FAR of the key, and ramping it would make the shirt see-through.
+RAMP = 4
 SPILL_RADIUS = 3       # px around the mask's edge where the key bled into the drawing
 GREEN_MARGIN = 10      # green this far above the mean of red and blue is the key's, not the drawing's
 CLEAR, SOLID, FULL = 8, 128, 248  # alpha: below CLEAR is background, above SOLID is the figure, FULL is opaque
@@ -69,7 +72,9 @@ def cut_out(rgb, key=None):
     """
     rgb = np.asarray(rgb)[..., :3]
     key = tuple(key) if key is not None else key_colour(rgb)
-    alpha = np.clip((distance(rgb, key) - NEAR) / (FAR - NEAR), 0, 1)
+    d = distance(rgb, key)
+    ground = d <= NEAR  # every patch of it, a gap between an arm and the body included
+    alpha = np.where(ndimage.binary_dilation(ground, iterations=RAMP), np.clip((d - NEAR) / (FAR - NEAR), 0, 1), 1.0)
     out = rgb.astype(np.float32)
     mixed = (alpha > 0) & (alpha < 1)
     share = alpha[mixed][:, None]
