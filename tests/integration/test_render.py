@@ -1,5 +1,9 @@
 """Phase 1 acceptance criteria (docs/design.md), end to end through a real browser."""
+import asyncio
+
+import numpy as np
 import pytest
+from playwright.async_api import async_playwright
 from PIL import Image
 
 from ballyhoo import art, provenance, render
@@ -152,3 +156,27 @@ def test_an_image_replaced_under_its_old_provenance_fails(tmp_path):
     Image.new("RGBA", (200, 250), (200, 60, 80, 255)).save(tmp_path / "designs" / "demo" / "figure.png")
     [result], _ = render.run(f)
     assert result.status == "FAIL" and "figure.png: provenance sha256 is not this file's" in result.message
+
+
+def test_a_drawing_put_into_the_figure_slot_keeps_its_shape_and_stands_on_the_slots_bottom_edge(tmp_path):
+    square = TEMPLATE.replace("top: 150px; width: 200px; height: 250px;", "top: 200px; width: 200px; height: 200px;")
+    project(tmp_path, 'demo:\n  AR:\n    uno: "Hola."\n', square)
+    drawing = tmp_path / "drawing.png"
+    Image.new("RGBA", (300, 400), (200, 60, 80, 255)).save(drawing)  # 3:4, in a 200x200 slot
+
+    async def preview():
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(executable_path=render.chrome_path(), args=render.CHROME_ARGS)
+            try:
+                return await render.render(browser, tmp_path / "designs" / "demo" / "400x400.html", "Hola.",
+                                           swap=("figure", drawing))
+            finally:
+                await browser.close()
+
+    image, failures, _, _ = asyncio.run(preview())
+    assert failures == []
+    ys, xs = np.nonzero((np.abs(image.astype(int) - (200, 60, 80)).max(axis=2) < 8))
+    left, right, top, bottom = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+    assert abs((right - left) / (bottom - top) - 3 / 4) < 0.02, "a 3:4 drawing is not stretched to a square slot"
+    assert (bottom - top, bottom) == (200, 400), "it fills the slot's height and stands on its bottom edge"
+    assert abs((left + right) / 2 - 300) <= 1, "it is centred across the slot"

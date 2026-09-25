@@ -87,6 +87,9 @@ SWAP_JS = """([slot, url]) => {
   const img = document.getElementById(slot);
   if (!(img instanceof HTMLImageElement)) throw new Error('template needs <img id="' + slot + '"> to put an image in');
   img.src = url;
+  // A template sizes #figure to its own art; another drawing keeps its proportions inside that box,
+  // standing on the box's bottom edge, rather than being stretched to the box's shape.
+  if (slot === 'figure') { img.style.objectFit = 'contain'; img.style.objectPosition = '50% 100%'; }
 }"""
 
 READ_JS = """(slots) => {
