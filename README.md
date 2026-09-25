@@ -375,8 +375,10 @@ pipeline: a scene under a band only 25% opaque, so a dark photo fails contrast.
 `review` serves a review page on 127.0.0.1, where a person rates each candidate
 against its need. `keep` then keeps what they chose.
 
-The page is a visual beside a conversation with an agent, not a replacement for it. One
-server per brief stays up for the whole thread, and each round goes like this:
+The page is a visual beside a conversation with an agent, not a replacement for it. The
+author runs nothing. At the start of the thread the agent starts `review BRIEF` in the
+background and sends the address it prints; that one server stays up for the whole
+thread, and each round goes like this:
 
 1. The author says in the thread what they want; the agent edits the brief.
 2. The agent runs `source` and `preview`, and says "have a look".
