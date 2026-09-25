@@ -4,7 +4,7 @@ import re
 import secrets
 from pathlib import Path
 
-from . import art, brief, candidates, provenance, render, review, review_server, runs, sourcing, verdicts
+from . import art, brief, candidates, comparisons, provenance, render, review, review_server, runs, sourcing, verdicts
 from .providers import MissingCredential, fal, firefly, gemini, openverse, pexels
 
 PROVIDERS = {p.NAME: p for p in (fal, firefly, gemini, openverse, pexels)}
@@ -60,14 +60,21 @@ def main(argv=None):
 
     k = sub.add_parser("keep", help="copy picked candidates into the art library with their provenance",
                        usage="ballyhoo keep CANDIDATES PICK... --to DIR --picked-by NAME\n"
-                             "       ballyhoo keep RUN --verdicts --need NEED --to DIR")
-    k.add_argument("path", metavar="CANDIDATES|RUN", type=Path, help="a candidates.yaml; with --verdicts, a run folder")
+                             "       ballyhoo keep RUN --verdicts --need NEED --to DIR\n"
+                             "       ballyhoo keep RUN --from comparisons --need NEED --top N --to DIR")
+    k.add_argument("path", metavar="CANDIDATES|RUN", type=Path,
+                   help="a candidates.yaml; with --verdicts or --from, a run folder")
     k.add_argument("picks", nargs="*", help="<candidate id> or <candidate id>=<file name>")
     k.add_argument("--to", type=Path, required=True, help="the art directory, e.g. scenes/")
     k.add_argument("--picked-by", help="the person who picked them")
     k.add_argument("--verdicts", action="store_true",
                    help="keep every candidate of --need that the run's verdicts.yaml rates keep, picked by whoever rated")
-    k.add_argument("--need", help="with --verdicts: the need whose keeps to keep")
+    k.add_argument("--from", dest="source", choices=("verdicts", "comparisons"),
+                   help=f"the run's file to take the picks from: {verdicts.FILE} (as --verdicts) or "
+                        f"{comparisons.FILE}, whose ranking --top takes the best of")
+    k.add_argument("--top", type=int, metavar="N",
+                   help="with --from comparisons: how many of the need's best-ranked candidates to keep")
+    k.add_argument("--need", help="with --verdicts or --from: the need whose picks to keep")
     k.set_defaults(run=run_keep)
 
     b = sub.add_parser("source", help="search and generate what a brief asks for, into a new run folder")
@@ -90,6 +97,9 @@ def main(argv=None):
     w.add_argument("--summary", action="store_true",
                    help="print keep, maybe and drop counts per need, provider and query or prompt, and exit")
     w.add_argument("--agent", action="store_true", help=f"with --summary: count {verdicts.AGENT_FILE} instead")
+    w.add_argument("--pairs", action="store_true",
+                   help=f"compare two candidates at a time, saving {comparisons.FILE}; "
+                        "with --summary, print each need's ranking instead")
     w.set_defaults(run=run_review)
 
     args = ap.parse_args(argv)
@@ -242,11 +252,26 @@ def run_review(ap, args):
         ap.error(f"{args.folder}: no such run folder")
     if args.agent and not args.summary:
         ap.error("--agent applies only with --summary: the page shows the agent's verdicts as hints")
+    if args.agent and args.pairs:
+        ap.error(f"--agent counts an agent's verdicts; comparisons are a person's, in {comparisons.FILE}")
     r, errors = runs.read_review(args.folder, PROVIDERS)
     for e in errors:
         print(f"FAIL  {e}")
     if errors:
         return 1
+    if args.summary and args.pairs:
+        print(f"{comparisons.FILE}: compared by {r.comparisons.rated_by} on {r.comparisons.rated_on}"
+              if r.comparisons else f"{comparisons.FILE}: none in this run, so nothing is ranked")
+        for need in r.needs:
+            if need not in r.found:
+                print(f"skip  {need}: no candidates in this run")
+                continue
+            state = review.need_state([c.id for c in r.found[need]], r.comparisons.of(need) if r.comparisons else [])
+            print(f"{need}: {state['done']} of {state['budget']} compared, "
+                  f"{state['seen']} of {state['candidates']} candidates seen")
+            for line in review.ranking_lines(state["ranking"]):
+                print(line)
+        return 0
     if args.summary:
         name, rated = (verdicts.AGENT_FILE, r.agent) if args.agent else (verdicts.FILE, r.verdicts)
         print(f"{name}: rated by {rated.rated_by} on {rated.rated_on}" if rated else
@@ -258,8 +283,9 @@ def run_review(ap, args):
             print(line)
         return 0
     server = review_server.make_server(args.folder, PROVIDERS, args.port)
-    print(f"review {args.folder} at {review_server.url(server)}  (saves {args.folder / verdicts.FILE}; Ctrl+C stops)",
-          flush=True)
+    saves = comparisons.FILE if args.pairs else verdicts.FILE
+    url = review_server.url(server) + (review_server.PAIRS.lstrip("/") if args.pairs else "")
+    print(f"review {args.folder} at {url}  (saves {args.folder / saves}; Ctrl+C stops)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -270,21 +296,32 @@ def run_review(ap, args):
 
 
 def run_keep(ap, args):
-    if args.verdicts:
+    source = args.source or ("verdicts" if args.verdicts else None)
+    if args.verdicts and args.source == "comparisons":
+        ap.error("--verdicts and --from comparisons are two different files to pick from: name one")
+    if args.top is not None and source != "comparisons":
+        ap.error("--top applies only with --from comparisons: it keeps a need's best-ranked candidates")
+    if source:
         if args.picks or args.picked_by is not None:
-            ap.error(f"--verdicts takes the picks, and who picked them, from the run's {verdicts.FILE}: "
+            ap.error(f"--from {source} takes the picks, and who picked them, from the run's file: "
                      "name no picks and no --picked-by")
         if not args.need:
-            ap.error("--verdicts needs --need: the need whose keeps to keep")
+            ap.error(f"--from {source} needs --need: the need whose picks to keep")
         if not args.path.is_dir():
             ap.error(f"{args.path}: no such run folder")
+    if source == "comparisons":
+        if args.top is None or args.top < 1:
+            ap.error("--from comparisons needs --top N: how many of the need's best-ranked to keep")
+        with sourcing.client() as http:
+            written, errors = runs.keep_comparisons(args.path, args.need, args.top, args.to, PROVIDERS, http)
+    elif source == "verdicts":
         with sourcing.client() as http:
             written, errors = runs.keep_verdicts(args.path, args.need, args.to, PROVIDERS, http)
     else:
         if args.need:
-            ap.error("--need applies only with --verdicts")
+            ap.error("--need applies only with --verdicts or --from")
         if not args.picks:
-            ap.error("name at least one pick, or keep what a run's verdicts rate keep with --verdicts --need")
+            ap.error("name at least one pick, or keep a run's picks with --verdicts or --from comparisons")
         if args.picked_by is None or not args.picked_by.strip():
             ap.error("--picked-by must name the person who picked")
         picks, errors = candidates.parse_picks(args.picks)

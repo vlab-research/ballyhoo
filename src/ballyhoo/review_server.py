@@ -1,9 +1,10 @@
-"""The review server: one run's review page on 127.0.0.1, saving verdicts.yaml when the page posts.
+"""The review server: one run's review pages on 127.0.0.1, saving what a page posts.
 
-The shell for review.py and verdicts.py, through runs.py. GET / serves the page
-built from the run as it is on disk; GET of any other path serves that file from
-the run and nothing outside it; POST /verdicts validates the posted verdicts and
-writes verdicts.yaml whole, or writes nothing and answers 400 with every problem.
+The shell for review.py, verdicts.py and comparisons.py, through runs.py. GET /
+serves the review page and GET /pairs the pairwise page, both built from the run
+as it is on disk; GET of any other path serves that file from the run and
+nothing outside it. A POST is validated before anything is written, and a save
+that is refused writes nothing and answers 400 with every problem.
 """
 import json
 import mimetypes
@@ -16,6 +17,9 @@ from . import review, runs
 
 HOST = "127.0.0.1"  # never every interface: the server writes into the run and serves its files
 MAX_BODY = 10 * 1024 * 1024
+PAIRS = "/pairs"
+SAVES = {"/verdicts": runs.save_verdicts, "/comparisons": runs.save_comparison,
+         "/comparisons/undo": runs.undo_comparison}
 
 
 def run_file(run, request_path):
@@ -53,14 +57,36 @@ def handler(run, providers):
             self.send(403, b"requests must be addressed to 127.0.0.1 or localhost", "text/plain; charset=utf-8")
             return False
 
+        def json_body(self):
+            """(True, the posted JSON), or (False, None) when it has already answered the request."""
+            # Another site's form can post text/plain to this server without the browser asking first, but not JSON.
+            if self.headers.get_content_type() != "application/json":
+                self.send_json(415, {"errors": ["a save must be sent as application/json"]})
+                return False, None
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                self.send_json(411, {"errors": ["a save needs a Content-Length"]})
+                return False, None
+            if length > MAX_BODY:
+                self.send_json(413, {"errors": [f"a save is at most {MAX_BODY} bytes"]})
+                return False, None
+            try:
+                return True, json.loads(self.rfile.read(length))
+            except ValueError as e:
+                self.send_json(400, {"errors": [f"not JSON: {e}"]})
+                return False, None
+
         def do_GET(self):
             if not self.from_this_host():
                 return
-            if urlsplit(self.path).path in ("/", f"/{review.PAGE}"):
+            request = urlsplit(self.path).path
+            if request in ("/", f"/{review.PAGE}", PAIRS):
                 r, errors = runs.read_review(run, providers)
                 if errors:
                     return self.send(500, "\n".join(errors).encode(), "text/plain; charset=utf-8")
-                return self.send(200, runs.review_page(r, editable=True).encode(), "text/html; charset=utf-8")
+                page = runs.pairs_page(r) if request == PAIRS else runs.review_page(r, editable=True)
+                return self.send(200, page.encode(), "text/html; charset=utf-8")
             path = run_file(run, self.path)
             if path is None:
                 return self.send(404, b"no such file in this run", "text/plain; charset=utf-8")
@@ -74,22 +100,14 @@ def handler(run, providers):
         def do_POST(self):
             if not self.from_this_host():
                 return
-            if urlsplit(self.path).path != "/verdicts":
-                return self.send_json(404, {"errors": ["verdicts are posted to /verdicts"]})
-            # Another site's form can post text/plain to this server without the browser asking first, but not JSON.
-            if self.headers.get_content_type() != "application/json":
-                return self.send_json(415, {"errors": ["verdicts must be sent as application/json"]})
-            try:
-                length = int(self.headers.get("Content-Length", ""))
-            except ValueError:
-                return self.send_json(411, {"errors": ["a save needs a Content-Length"]})
-            if length > MAX_BODY:
-                return self.send_json(413, {"errors": [f"a save is at most {MAX_BODY} bytes"]})
-            try:
-                data = json.loads(self.rfile.read(length))
-            except ValueError as e:
-                return self.send_json(400, {"errors": [f"not JSON: {e}"]})
-            reply, errors = runs.save_verdicts(run, providers, data)
+            request = urlsplit(self.path).path
+            if request not in SAVES:
+                return self.send_json(404, {"errors": [f"nothing is posted to {request} "
+                                                       f"(saves: {', '.join(sorted(SAVES))})"]})
+            ok, data = self.json_body()
+            if not ok:
+                return
+            reply, errors = SAVES[request](run, providers, data)
             if errors:
                 return self.send_json(400, {"errors": errors})
             self.send_json(200, reply)

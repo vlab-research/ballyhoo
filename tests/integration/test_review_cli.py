@@ -160,8 +160,9 @@ def test_a_save_writes_verdicts_and_keep_takes_the_keeps_as_picked_by_the_rater(
         assert image.read_bytes() == (run / "ke-woman" / "originals" / f"{name}.jpg").read_bytes()
         record = yaml.safe_load(art.sidecar(image).read_text())
         assert provenance.problems(record, art.file_digest(image)) == []
+        started = yaml.safe_load((run / "manifest.yaml").read_text())["started"]
         assert (record["picked"], record["fetched"], record["query"]) == (
-            {"by": "A. Author", "on": TODAY}, TODAY, "bright village")
+            {"by": "A. Author", "on": TODAY}, datetime.date.fromisoformat(str(started)[:10]), "bright village")
 
     assert cli.main(keep) == 1
     assert capsys.readouterr().out.splitlines() == [

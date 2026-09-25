@@ -21,12 +21,13 @@ import yaml
 from PIL import Image
 from playwright.async_api import async_playwright
 
-from . import art, brief, cache, candidates, preview, render, review, sourcing, verdicts
+from . import art, brief, cache, candidates, comparisons, preview, render, review, sourcing, verdicts
 
 BRIEF = "brief.yaml"
 MANIFEST = "manifest.yaml"
 RUNS = "runs"
 TEMPLATE = Path(__file__).with_name(review.PAGE)
+PAIRS_TEMPLATE = Path(__file__).with_name(review.PAIRS_PAGE)
 
 
 def load(path, providers, base=None):
@@ -204,18 +205,36 @@ class Review:
     checks: dict     # need -> loaded checks.yaml, for each previewed need
     verdicts: object  # verdicts.Verdicts from verdicts.yaml, or None
     agent: object     # verdicts.Verdicts from agent-verdicts.yaml, or None
+    comparisons: object = None  # comparisons.Comparisons from comparisons.yaml, or None
+
+
+def read_comparisons(run, found):
+    """A run's comparisons.yaml, validated against its candidates.
+
+    Returns (Comparisons, or None when the run has none, errors).
+    """
+    path = Path(run) / comparisons.FILE
+    if not path.is_file():
+        return None, []
+    try:
+        data = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as e:
+        return None, [f"{path}: {e}"]
+    parsed, errors = comparisons.parse(data, candidate_ids(found))
+    return parsed, [f"{path}: {e}" for e in errors]
 
 
 def read_review(run, providers):
-    """What a run's review page shows, as it is on disk. Returns (Review or None, errors)."""
+    """What a run's review pages show, as they are on disk. Returns (Review or None, errors)."""
     run = Path(run).resolve()
     needs, _, found, checks, errors = read(run, providers)
     person, problems = read_verdicts(run, found)
     agent, more = read_verdicts(run, found, verdicts.AGENT_FILE)
-    errors += problems + more
+    made, also = read_comparisons(run, found)
+    errors += problems + more + also
     if errors:
         return None, errors
-    return Review(run.name, {n.name: n.need for n in needs}, found, checks, person, agent), []
+    return Review(run.name, {n.name: n.need for n in needs}, found, checks, person, agent, made), []
 
 
 def review_page(r, editable):
@@ -250,6 +269,91 @@ def save_verdicts(run, providers, data):
     r = Review(run.name, {n.name: n.need for n in needs}, found, checks, parsed, agent)
     write_atomically(run / review.PAGE, review_page(r, editable=False))
     return {"saved": verdicts.FILE, "summary": review.summary(found, parsed)}, []
+
+
+def pairs_page(r):
+    """The pairwise page's HTML, for a run read with read_review. It needs a server, so there is no static copy."""
+    return review.page(PAIRS_TEMPLATE.read_text(),
+                       review.pairs_data(r.name, r.needs, r.found, r.checks, r.comparisons))
+
+
+def _pairs_reply(made, found, need):
+    """What the pairwise page gets back: where the need stands now, so it can show the next pair."""
+    return {"saved": comparisons.FILE, "need": need, "rated_by": made.rated_by,
+            "state": review.need_state([c.id for c in found[need]], made.of(need))}
+
+
+def _write_comparisons(run, found, data):
+    """Validate a comparisons map and write it whole, or write nothing. Returns (Comparisons or None, errors)."""
+    parsed, errors = comparisons.parse(data, candidate_ids(found))
+    if errors:
+        return None, errors
+    write_atomically(run / comparisons.FILE,
+                     yaml.safe_dump(comparisons.dump(parsed), sort_keys=False, allow_unicode=True))
+    return parsed, []
+
+
+def save_comparison(run, providers, data):
+    """Add one comparison the pairwise page posted to comparisons.yaml, or write nothing.
+
+    Returns (reply, errors). The whole file is validated, so a comparison is added only to a file
+    that is still valid for the run.
+    """
+    run = Path(run).resolve()
+    if not isinstance(data, dict):
+        return None, ["expected a map with rated_by, rated_on, need, a, b and winner"]
+    _, _, found, _, errors = read(run, providers)
+    made, problems = read_comparisons(run, found)
+    errors += problems
+    if errors:
+        return None, errors
+    entry = {k: v for k, v in data.items() if k not in ("rated_by", "rated_on")}
+    parsed, errors = _write_comparisons(run, found, comparisons.with_comparison(
+        made, data.get("rated_by"), data.get("rated_on"), entry))
+    if errors:
+        return None, errors
+    return _pairs_reply(parsed, found, entry["need"]), []
+
+
+def undo_comparison(run, providers, data):
+    """Drop a need's last comparison from comparisons.yaml, or write nothing. Returns (reply, errors)."""
+    run = Path(run).resolve()
+    if not isinstance(data, dict) or not isinstance(data.get("need"), str):
+        return None, ["expected a map naming the need to undo"]
+    _, _, found, _, errors = read(run, providers)
+    made, problems = read_comparisons(run, found)
+    errors += problems
+    if errors:
+        return None, errors
+    if data["need"] not in found:
+        return None, [f"{data['need']}: not a need with candidates in this run"]
+    undone, errors = comparisons.without_last(made, data["need"])
+    if errors:
+        return None, errors
+    parsed, errors = _write_comparisons(run, found, undone)
+    if errors:
+        return None, errors
+    return _pairs_reply(parsed, found, data["need"]), []
+
+
+def keep_comparisons(run, need, top, to_dir, providers, http):
+    """Keep the `top` best-ranked candidates of `need`, as picked by whoever compared them.
+
+    The files are the run's own bytes. Returns (written paths, errors).
+    """
+    run = Path(run)
+    _, _, found, _, errors = read(run, providers)
+    made, problems = read_comparisons(run, found)
+    errors += problems
+    if errors:
+        return [], errors
+    ids, errors = comparisons.keep_plan(made, candidate_ids(found), need, top)
+    if errors:
+        return [], errors
+    manifest, _ = _manifest(run)
+    fetched = datetime.date.fromisoformat(str(manifest["started"])[:10])  # stock originals are downloaded by source
+    return sourcing.keep(run / need / candidates.FILE, [(i, None) for i in ids], to_dir, made.rated_by, http,
+                         today=made.rated_on, fetched=fetched)
 
 
 def keep_verdicts(run, need, to_dir, providers, http):

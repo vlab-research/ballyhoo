@@ -1,0 +1,239 @@
+<!doctype html>
+<!--
+  The pairwise review page, filled in by review.page with the data review.pairs_data builds.
+  `ballyhoo review RUN --pairs` serves it; it posts one comparison at a time to /comparisons and
+  undoes the last one at /comparisons/undo. It loads nothing from the network.
+  Decisions stay in Python: the server chooses each pair and ranks what the comparisons say, and
+  the page shows two candidates and posts which one won.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compare</title>
+<style>
+  :root { --ink: #1d1d1f; --muted: #626262; --line: #d8d8d4; --bg: #f4f4f1; --card: #fff;
+          --pick: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink);
+         background: var(--bg); }
+  #bar { display: flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: center;
+         padding: .5rem .75rem; background: var(--card); border-bottom: 1px solid var(--line); }
+  #bar input, #bar select { font: inherit; padding: .4rem; min-height: 44px; }
+  #bar input { width: 9rem; }
+  .muted { color: var(--muted); }
+  .keys { font-size: 13px; }
+  #errors { margin: 0; padding: .6rem 1rem .6rem 2rem; background: #ffebe9; color: #82071e;
+            border-bottom: 1px solid #f3b7b3; }
+  main { padding: .5rem .75rem 1.5rem; }
+  #need-text { margin: .2rem 0 .6rem; }
+  #pair { display: grid; gap: .5rem; grid-template-columns: 1fr; }
+  .card { display: block; width: 100%; padding: .35rem; margin: 0; background: var(--card); cursor: pointer;
+          border: 2px solid var(--line); border-radius: 8px; font: inherit; color: inherit;
+          -webkit-tap-highlight-color: transparent; }
+  .card img { display: block; width: 100%; height: auto; max-height: 38vh; object-fit: contain; background: #eee; }
+  .card figcaption { font-size: 13px; color: var(--muted); padding-top: .25rem; text-align: left; }
+  .card:active, .card.chosen { border-color: var(--pick); }
+  .card.chosen { box-shadow: 0 0 0 3px rgba(26, 127, 55, .35); }
+  .card:disabled { opacity: .6; }
+  @media (orientation: landscape) {
+    #pair { grid-template-columns: 1fr 1fr; }
+    .card img { max-height: 62vh; }
+  }
+  #actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+  #actions button { flex: 1 1 8rem; min-height: 52px; font: inherit; padding: .5rem 1rem; background: var(--card);
+                    border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  #actions button:active { background: var(--bg); }
+  #actions button:disabled { opacity: .5; cursor: not-allowed; }
+  #done { padding: .8rem; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  #ranking { margin-top: 1rem; overflow-x: auto; }
+  table { border-collapse: collapse; font-size: 14px; background: var(--card); width: 100%; }
+  th, td { padding: .3rem .5rem; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th[scope=col] { text-align: right; }
+  td.id, th.id { text-align: left; font-family: ui-monospace, monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<header id="bar">
+  <strong id="run"></strong>
+  <label>Your name <input id="rated-by" autocomplete="name" required></label>
+  <label id="need-pick" hidden>Need <select id="need"></select></label>
+  <span id="progress" class="muted"></span>
+  <button id="show-ranking" type="button">Ranking</button>
+  <span class="muted keys">← → choose · space can't separate · u undo</span>
+</header>
+<ul id="errors" hidden></ul>
+<main>
+  <p id="need-text"></p>
+  <div id="pair"></div>
+  <div id="actions">
+    <button id="tie" type="button">Can't separate</button>
+    <button id="undo" type="button">Undo</button>
+  </div>
+  <p id="done" hidden></p>
+  <section id="ranking" hidden></section>
+</main>
+<script id="data" type="application/json">__BALLYHOO_DATA__</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("data").textContent);
+const NAME_KEY = "ballyhoo-rated-by";
+const byId = {};   // "<need>/<id>" -> the candidate as the page shows it
+let need = DATA.needs[0] || null;
+let busy = false;
+
+function h(tag, props, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) {
+    if (c !== null && c !== undefined && c !== false) node.append(c instanceof Node ? c : String(c));
+  }
+  return node;
+}
+
+function showErrors(messages) {
+  const box = document.getElementById("errors");
+  box.replaceChildren(...messages.map(m => h("li", {}, m)));
+  box.hidden = !messages.length;
+}
+
+function today() {
+  const d = new Date();
+  return [d.getFullYear(), d.getMonth() + 1, d.getDate()].map((n, i) => String(n).padStart(i ? 2 : 4, "0")).join("-");
+}
+
+function card(side, candidate) {
+  return h("button", {type: "button", class: "card", "data-side": side, "data-id": candidate.id,
+                      disabled: busy, onclick: () => choose(side)},
+    h("img", {src: candidate.image, alt: candidate.alt}),
+    h("figcaption", {}, candidate.previewed ? "" : "photo, not previewed as an ad"));
+}
+
+function rankingTable(ranking) {
+  const head = [h("th", {scope: "col", class: "id"}, "candidate"), ...["score", "comparisons", "W", "L", "T"]
+    .map(t => h("th", {scope: "col"}, t))];
+  const rows = ranking.map((r, i) => h("tr", {},
+    h("td", {class: "id"}, `${r.score === null ? "–" : i + 1}. ${r.id}`),
+    h("td", {}, r.score === null ? "never compared" : r.score.toFixed(2)),
+    h("td", {}, r.comparisons), h("td", {}, r.wins), h("td", {}, r.losses), h("td", {}, r.ties)));
+  return h("table", {}, h("thead", {}, h("tr", {}, head)), h("tbody", {}, rows));
+}
+
+function render() {
+  const pair = document.getElementById("pair");
+  const done = document.getElementById("done");
+  document.getElementById("need-text").textContent = need ? need.need : "This run has no candidates to compare.";
+  if (!need) {
+    pair.replaceChildren();
+    document.getElementById("progress").textContent = "";
+    return;
+  }
+  const s = need.state;
+  document.getElementById("progress").textContent =
+    `${s.done} of ${s.budget} compared · ${s.seen} of ${s.candidates} candidates seen`;
+  if (s.pair) {
+    pair.replaceChildren(card("a", byId[`${need.name}/${s.pair[0]}`]), card("b", byId[`${need.name}/${s.pair[1]}`]));
+    done.hidden = true;
+  } else {
+    pair.replaceChildren();
+    done.textContent = s.budget === 0
+      ? `${need.name} has nothing to compare: a need needs two candidates.`
+      : `Done: ${s.done} comparisons of ${need.name}. Keep the best with ` +
+        `ballyhoo keep RUN --need ${need.name} --top N --from comparisons --to DIR`;
+    done.hidden = false;
+  }
+  document.getElementById("tie").disabled = busy || !s.pair;
+  document.getElementById("undo").disabled = busy || !s.done;
+  const panel = document.getElementById("ranking");
+  if (!panel.hidden) panel.replaceChildren(rankingTable(s.ranking));
+}
+
+function name() {
+  const input = document.getElementById("rated-by");
+  const value = input.value.trim();
+  if (!value) {
+    showErrors(["Enter your name before comparing: every comparison, and so every pick, names the person who made it."]);
+    input.focus();
+  }
+  return value;
+}
+
+/** Post one judgement and only then move on, so a dropped connection loses nothing but the click. */
+async function post(path, body, chosen) {
+  busy = true;
+  if (chosen) document.querySelector(`.card[data-side="${chosen}"]`)?.classList.add("chosen");
+  for (const b of document.querySelectorAll(".card, #actions button")) b.disabled = true;
+  let reply, ok;
+  try {
+    const response = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
+                                        body: JSON.stringify(body)});
+    ok = response.ok;
+    reply = await response.json();
+  } catch (e) {
+    ok = false;
+    reply = {errors: [`could not reach the ballyhoo server: ${e}. Nothing was lost; try again.`]};
+  }
+  busy = false;
+  if (!ok) {
+    showErrors(reply.errors || ["the server refused the comparison"]);
+    render();
+    return;
+  }
+  showErrors([]);
+  try { localStorage.setItem(NAME_KEY, body.rated_by || ""); } catch (e) { /* storage blocked */ }
+  need.state = reply.state;
+  render();
+}
+
+function choose(winner) {
+  if (busy || !need || !need.state.pair) return;
+  const who = name();
+  if (!who) return;
+  const [a, b] = need.state.pair;
+  post("/comparisons", {rated_by: who, rated_on: today(), need: need.name, a, b, winner},
+       winner === "tie" ? null : winner);
+}
+
+function undo() {
+  if (busy || !need || !need.state.done) return;
+  post("/comparisons/undo", {need: need.name}, null);
+}
+
+document.getElementById("run").textContent = DATA.run;
+document.title = `Compare ${DATA.run}`;
+for (const n of DATA.needs) for (const c of n.candidates) byId[`${n.name}/${c.id}`] = c;
+if (DATA.needs.length > 1) {
+  const select = document.getElementById("need");
+  select.replaceChildren(...DATA.needs.map(n => h("option", {value: n.name}, n.name)));
+  select.addEventListener("change", () => { need = DATA.needs.find(n => n.name === select.value); render(); });
+  document.getElementById("need-pick").hidden = false;
+}
+try { document.getElementById("rated-by").value = localStorage.getItem(NAME_KEY) || ""; } catch (e) { /* blocked */ }
+document.getElementById("tie").addEventListener("click", () => choose("tie"));
+document.getElementById("undo").addEventListener("click", undo);
+document.getElementById("show-ranking").addEventListener("click", () => {
+  const panel = document.getElementById("ranking");
+  panel.hidden = !panel.hidden;
+  render();
+});
+render();
+
+document.addEventListener("keydown", e => {
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) {
+    if (e.key === "Escape") e.target.blur();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const act = {ArrowLeft: () => choose("a"), ArrowRight: () => choose("b"), " ": () => choose("tie"), u: undo}[e.key];
+  if (act) {
+    e.preventDefault();  // space would otherwise scroll, or re-click the card that has focus
+    act();
+  }
+});
+</script>
+</body>
+</html>

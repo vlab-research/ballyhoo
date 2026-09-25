@@ -1,18 +1,20 @@
-"""The review page: a run's candidates, what the checks found and the verdicts, as data for review.html.
+"""The review pages: a run's candidates, what the checks found and the verdicts, as data for the templates.
 
 Pure. The shell loads the run's brief, each need's candidates.yaml and
-checks.yaml, verdicts.yaml and agent-verdicts.yaml. This module builds the
-page's data, the summary of verdicts per need, provider and query or prompt,
-and the page itself from the template. runs.py writes the page into the run;
-review_server.py serves it.
+checks.yaml, verdicts.yaml, agent-verdicts.yaml and comparisons.yaml. This
+module builds each page's data, the summary of verdicts per need, provider and
+query or prompt, and the page itself from its template. runs.py writes the
+review page into the run; review_server.py serves both.
 """
 import json
 
+from . import comparisons
 from .preview import URL
 from .verdicts import ISSUES, VERDICTS
 
 PAGE = "review.html"
-MARK = "__BALLYHOO_DATA__"  # where the template takes its data
+PAIRS_PAGE = "review-pairs.html"
+MARK = "__BALLYHOO_DATA__"  # where a template takes its data
 
 
 def _counts(verdicts):
@@ -67,6 +69,16 @@ def summary_lines(summary):
     return lines
 
 
+def ranking_lines(ranking):
+    """A need's ranking as `ballyhoo review --summary --pairs` prints it, best first."""
+    lines = []
+    for place, r in enumerate(ranking, 1):
+        stands = "never compared" if r["score"] is None else \
+            f"score {r['score']:.2f}, {r['comparisons']} comparisons ({r['wins']}W {r['losses']}L {r['ties']}T)"
+        lines.append(f"{'   -' if r['score'] is None else f'{place:4}'}. {r['id']}  {stands}")
+    return lines
+
+
 def _path(need, ref):
     """A file in a need's folder as a path relative to the run, where the page is; a URL as it is."""
     return ref if ref.startswith(URL) else f"{need}/{ref}"
@@ -114,6 +126,45 @@ def page_data(run, needs, found, checks, verdicts, agent, editable):
                    "candidates": [_candidate(name, c, checks.get(name, {}).get("candidates", {}).get(c.id),
                                              verdicts, agent) for c in found.get(name, [])]}
                   for name, text in needs.items()],
+    }
+
+
+def _pair_candidate(need, c, checked):
+    """One candidate as the pairwise page shows it: the ad it makes if it has been previewed, else the image itself."""
+    rendered = [p for p in (checked or {}).get("previews", {}).values() if p.get("file")]
+    return {"id": c.id, "alt": c.provenance.get("alt") or c.provenance.get("title") or c.id,
+            "image": _path(need, rendered[0]["file"] if rendered else c.thumb),
+            "previewed": bool(rendered)}
+
+
+def ranking_data(ranking):
+    """A need's ranking as the page shows it, best first."""
+    return [{"id": r.id, "score": r.score, "comparisons": r.comparisons,
+             "wins": r.wins, "losses": r.losses, "ties": r.ties} for r in ranking]
+
+
+def need_state(candidate_ids, made):
+    """A need's progress, the pair to compare next and the ranking so far: what a page shows and each save returns."""
+    p = comparisons.progress(candidate_ids, made)
+    return {"done": p.done, "budget": p.budget, "seen": p.seen, "candidates": p.candidates,
+            "pair": list(p.pair) if p.pair else None, "ranking": ranking_data(comparisons.rank(candidate_ids, made))}
+
+
+def pairs_data(run, needs, found, checks, made):
+    """The pairwise page's data: per need, its candidates and where its comparisons have got to.
+
+    A need with no candidates is left out, since there is nothing to compare. `made` is the run's
+    comparisons, or None when nobody has compared yet.
+    """
+    return {
+        "run": run, "winners": list(comparisons.WINNERS),
+        "rated_by": made.rated_by if made else None,
+        "rated_on": made.rated_on.isoformat() if made else None,
+        "needs": [{"name": name, "need": needs[name],
+                   "candidates": [_pair_candidate(name, c, checks.get(name, {}).get("candidates", {}).get(c.id))
+                                  for c in found[name]],
+                   "state": need_state([c.id for c in found[name]], made.of(name) if made else [])}
+                  for name in needs if name in found],
     }
 
 
