@@ -140,7 +140,7 @@ A candidates directory holds:
 | `candidates.yaml` | one entry per candidate: `n`, `id`, for stock `query` (the search that found it first) and `queries` (every search that found it, first first), `width`, `height`, `full` and `preview` (URLs, or paths in this directory), `thumb`, and the provenance record less `sha256`, `picked` and `fetched`. The record keeps the provider's description of a photo when it has one: Pexels's `alt`, Openverse's `title` |
 | `originals/<id>.<ext>` | full-size stock files as delivered, when `source` made the directory; `full` and `preview` name them, and the record's `download_url` is the URL they came from |
 | `thumbs/<id>.jpg` | 640 px on the long edge, for review pages |
-| `sheet-01.png` … | contact sheets, 20 to a sheet, numbered by `n` |
+| `sheet-01.png` … | contact sheets, 20 to a sheet, numbered by `n`. In a run, `n` restarts in each need, so a sheet's numbers are not the review page's names (§ Review): there, name a candidate as the page does |
 | `generated/<id>.<ext>` | generated images, as delivered |
 | `cutouts/<id>.png` | a drawing with its ground keyed out (§ Drawings): what its previews show and `keep` keeps |
 
@@ -178,7 +178,9 @@ transparency, a soft edge, stray specks, and the key's green left in or painted 
 the figure. The candidate's entry in `candidates.yaml` gains
 `cutout: {file, key, mask: {pass, failures}}`. A figure drawn to the edges of the
 frame, leaving no border to read the key from, and a pale, washed-out ground are
-not cut out cleanly.
+not cut out cleanly. So a style's `framing` should keep the figure inside the picture,
+with green on both sides, cut off only by the bottom edge: an arm cut by a side edge
+shows in the ad as a straight line.
 
 ## Briefs and runs
 
@@ -204,7 +206,7 @@ styles:                           # how drawings are drawn; a named map, like th
   precise-pastel:
     style: The picture is hand drawn, extremely detailed … - pastel palette.
     guards: No lettering, signs, logos or brand names anywhere.    # optional
-    framing: One figure, waist up, filling the frame.              # optional
+    framing: One figure, waist up, with green on both sides.       # optional
 
 ea-woman:
   need: A woman who reads as East African, middle-aged, in a photo that stops the scroll.
@@ -274,7 +276,7 @@ runs/2026-09-14-1/         <UTC date>-<n>; a second run that day is -2, and no r
   manifest.yaml            what ran
   ea-woman/                a candidates directory (above), with stock originals in originals/
   review.html              the review page, read-only (§ Review); written by preview and by each save
-  verdicts.yaml            a person's verdicts, saved from the review page; absent until someone rates
+  verdicts.yaml            a person's verdicts, saved from the review page; absent until someone rates, or once every mark is cleared
   agent-verdicts.yaml      an agent's verdicts, written by the agent; optional
 ```
 
@@ -371,20 +373,34 @@ pipeline: a scene under a band only 25% opaque, so a dark photo fails contrast.
 ## Review
 
 `review` serves a review page on 127.0.0.1, where a person rates each candidate
-against its need. `keep --verdicts` then keeps what they rated keep.
+against its need. `keep` then keeps what they chose.
+
+The page is a visual beside a conversation with an agent, not a replacement for it. One
+server per brief stays up for the whole thread, and each round goes like this:
+
+1. The author says in the thread what they want; the agent edits the brief.
+2. The agent runs `source` and `preview`, and says "have a look".
+3. The author looks at the new round on the page and marks it: keep, maybe or drop,
+   issues, and a note per need. Each mark is saved as it is made.
+4. The agent reads `review BRIEF --summary` to see the marks and notes, and goes round
+   again, or keeps the picks: `keep BRIEF 3.4 --to … --picked-by …`.
+
+The page never generates, edits a prompt or keeps: the agent does all of that.
 
     uv run ballyhoo review brief.yaml                     # every run in runs/ next to the brief, or name a runs directory
     uv run ballyhoo review runs/2026-09-14-1              # one run; either prints the page's address; --port N (default: any free port)
     uv run ballyhoo review brief.yaml --summary           # every run's verdicts and notes, newest first, and exit
-    uv run ballyhoo review runs/2026-09-14-1 --summary    # one run's counts (below), and exit; --agent reads agent-verdicts.yaml
+    uv run ballyhoo review runs/2026-09-14-1 --summary    # one run's counts (below), and exit; with either, --agent reads agent-verdicts.yaml
     uv run ballyhoo keep runs/2026-09-14-1 --verdicts --need ea-woman --to ../recruitment-creative/scenes
     uv run ballyhoo keep brief.yaml 3.4 3.7=couple-park --to ../recruitment-creative/scenes --picked-by "<who picked>"
 
 The page shows runs newest first, the newest open and older ones folded, each headed
 with its needs and what it asked that the run before did not. The server reads the
 runs from disk on every request, so a run made while it is up appears: the page
-offers "New round: show it" rather than reloading under the cursor. A filter shows
-all candidates, the unrated, the keeps, or all but the drops.
+offers "New round: show it" rather than reloading under the cursor. A run still being
+sourced, or whose previews are not all written yet, says so in place of its candidates.
+Given a brief with no `runs/` yet, `review` makes the directory and waits for the first
+run. A filter shows all candidates, the unrated, the keeps, or all but the drops.
 
 Within a run, the page groups candidates by need, in brief order. Each need opens with
 what it asks for, the headline its previews used, and the summary. Each candidate shows
@@ -399,7 +415,8 @@ and each need's candidates in `candidates.yaml` order (not `candidates.yaml`'s o
 which restarts in every need). Run numbers restart each day, so the full name is
 `2026-09-24-3.4`; the page shows it in full wherever another run it shows is also
 numbered 3. A name never changes once the run is sourced, so the author and the agent
-can use it in the thread.
+can use it in the thread. Contact sheets (`sheet-01.png`) number by `n` and do not
+show these names; the page and its names replace them in a review.
 
 **`keep BRIEF|RUNS|RUN NAME... --to DIR --picked-by NAME`** keeps candidates by name,
 each as `<name>` or `<name>=<file name>`, like picks by id. Given a brief (its `runs/`) or
@@ -523,7 +540,7 @@ is what a photo has to read as (`docs/creative-rules.md` § Audience). One query
 
     uv run --env-file .env ballyhoo source smoke/brief.yaml     # into smoke/runs/<date>-<n>/; needs PEXELS_API_KEY
     uv run ballyhoo preview smoke/runs/<run>                    # render and check every candidate
-    uv run ballyhoo review smoke/runs/<run>                     # rate on the page
+    uv run ballyhoo review smoke/brief.yaml                     # rate on the page, every run of the brief
     uv run ballyhoo review smoke/runs/<run> --summary           # keep rate per need and query
 
 - `na-woman`, an unveiled middle-aged woman who reads North African or Arab, is the known
@@ -579,8 +596,8 @@ a pure function, and the browser only measures and takes screenshots.
 | `render.py` | nothing; it is the shell. Reads files, drives Chrome (putting a candidate into a slot when asked), writes PNGs |
 | `art.py` | nothing; the shell for provenance. Hashes images, reads and writes sidecars |
 | `sourcing.py` | nothing; the shell for candidates and providers. Sends requests, polls queues, downloads originals, draws sheets, writes kept images |
-| `runs.py` | nothing; the shell for briefs, previews and review. Makes the run folder, runs each job through `sourcing`, writes the manifest; renders previews through `render` and writes `checks.yaml` and `review.html`; reads a run for review, saves `verdicts.yaml` and keeps a need's keeps |
-| `review_server.py` | nothing; the shell for the review page. Serves it and the run's files on 127.0.0.1, and saves what the page posts through `runs` |
+| `runs.py` | nothing; the shell for briefs, previews and review. Makes the run folder, runs each job through `sourcing`, writes the manifest; renders previews through `render` and writes `checks.yaml` and `review.html`; reads runs for review and what `/state` answers, merges a mark into `verdicts.yaml`, and keeps a need's keeps |
+| `review_server.py` | nothing; the shell for the review page. Serves it, `/state` and the files of a run or a brief's runs on 127.0.0.1, and merges each mark the page posts through `runs` |
 | `cli.py` | the `ballyhoo` command |
 
 ## Tests
@@ -591,7 +608,8 @@ a pure function, and the browser only measures and takes screenshots.
 
 - `tests/unit/` tests the core with plain data: no browser, no files.
 - `tests/integration/test_render.py` runs the Phase 1 acceptance criteria and the
-  provenance check through a real browser on a small synthetic template.
+  provenance check through a real browser on a small synthetic template, and checks
+  that a drawing put into `#figure` keeps its shape.
 - `tests/integration/test_provenance_cli.py` runs `ballyhoo provenance made` on
   files, without a browser.
 - `tests/integration/test_sourcing.py` runs search, generation (including queued
@@ -605,10 +623,12 @@ a pure function, and the browser only measures and takes screenshots.
   contrast, a 400 px one fails the upscale check, a bright one passes, and a template
   problem stops the preview before anything renders.
 - `tests/integration/test_review_cli.py` runs the review server on an ephemeral port, on a
-  run sourced from the fake provider, and drives it with httpx: the page, the run's files
-  and nothing outside it, a save refused with every problem, a save written. It then runs
-  `keep --verdicts` and its refusals, and `review --summary` of a run and of a brief's
-  runs. One browser test rates on the page, notes a need, and checks the read-only copy.
+  run or a brief's runs sourced from the fake provider, and drives it with httpx: the page,
+  the run's files and nothing outside it, a run made while the server is up appearing in
+  `/state` and on the page, a mark refused with every problem, a second rater refused, each
+  mark merged. It then runs `keep` by name and `--verdicts` and their refusals, and
+  `review --summary` of a run and of a brief's runs. Two browser tests mark on the page,
+  note a need, check the read-only copy, fold older runs, filter, and offer a new round.
 - `tests/integration/test_smoke_brief.py` checks that the committed smoke brief parses, its
   templates exist, its Pexels requests build, and no need or query asks for anyone older
   than middle age. No network.
