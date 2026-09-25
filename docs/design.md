@@ -225,18 +225,34 @@ ballyhoo takes picks only from a person: named as arguments, or read from the
   shaping are where glyphs garble. Text stays in CSS.
 - Consistency across a campaign matters more than per-image quality.
 
-### Scenes before cut-outs
+### Photos as scenes, drawings as cut-outs
 
-No provider returns transparency, so sourced images go in as `scenes/`, placed
-rectangles. *Never matte a figure out of a flattened PNG* still holds; a cut-out
-needs a background-removal step (a matting model on an image generated against a
-plain background) with its own mask check.
+No provider returns transparency, so a photo goes in as a scene: a placed rectangle
+in `#scene`. **Direction (the author, 2026-09-14):** photos come from stock, with
+queries tuned by people and agents, and generated images are drawings used as
+transparent cut-outs, like the partner's characters, in `#figure`, where the
+collision check already applies.
 
-**Direction (the author, 2026-09-14):** photos come from stock, with queries tuned by
-people and agents. Generated images will be drawings used as transparent cut-outs,
-like the partner's characters, which a later step places in a `#figure` slot, where
-the collision check already applies. How they are drawn and cut out is not settled.
-Preview fills only `#scene` for now.
+*Never matte a figure out of a flattened PNG* still holds, so a drawing is generated
+on flat chroma-key green, never on a scene, and a colour key read from the image's
+border takes the green out. Against cut-outs Adobe Express made of the same art the
+key lost nothing, where every matting model left a green cast at the edge. No
+remover is good enough to trust unseen, so every cut-out's mask is checked and what
+the check finds is recorded for the person rating it, never acted on.
+
+- **Ramp alpha only near the ground.** A key that sets alpha by colour distance
+  everywhere makes pale or greenish paint inside the figure part transparent: a
+  green jacket takes the colour of whatever the figure is placed on. The ramp
+  reaches only a few pixels from pixels that are the ground; beyond that everything
+  is the figure and opaque.
+- **A figure needs green on both sides.** The key is read from the border, and a
+  figure drawn to the side edges leaves none, and its arms end in a straight line
+  the ad shows. A style's framing asks for the figure inside the picture, cut off
+  only by the bottom edge. A pale, washed-out ground defeats the key too.
+- **A cut-out keeps its shape in `#figure`.** The slot's box is the template's, not
+  the drawing's, so a 3:4 drawing in a square box would stretch; the preview gives
+  it `object-fit: contain`, standing on the box's bottom edge like the art it
+  replaces.
 
 ### Judging imagery (briefs, runs, preview and review built; the first smoke run is in `planning/imagery-pipeline.md`)
 
@@ -289,9 +305,9 @@ working ad, and a person rates the rest against the need.
   masks need `--allow-file-access-from-files`. The page still reports the URL the slot
   shows, and a slot showing anything else fails, because `srcset` or a `<picture>`
   would quietly keep the placeholder.
-- **A candidate fills a slot, named by id.** Photos go into `#scene`. Generated
-  images are expected to be drawn cut-outs for `#figure` (above), so the slot is a
-  field of a preview, not a name built into the code.
+- **A candidate fills a slot, named by id.** Photos go into `#scene` and drawn
+  cut-outs into `#figure` (above), so the slot is a field of a preview, not a name
+  built into the code.
 - **Scene upscaling is checked in every render, not only in previews.** A kept photo
   too small for its template looks as soft in the ad. The scale follows
   `object-fit`: `cover` draws at the larger of the width and height ratios, `contain`
@@ -321,6 +337,33 @@ working ad, and a person rates the rest against the need.
   files from the run, never from outside it. It refuses a request addressed to any
   host name but 127.0.0.1 or localhost, and a save that is not JSON, because a page on
   another site can rebind its own host name to 127.0.0.1 or post a plain form.
+- **The page is a visual beside a conversation, not a replacement for the agent.**
+  The author says what they want in a thread; the agent edits the brief, sources and
+  previews; the author looks and marks; the agent reads the marks and goes round
+  again. So one server serves every run of a brief and lives as long as the thread.
+  A server per run made each round a new command, port and URL, and a page that had
+  to be restarted for every round was no better than a static file. The server holds
+  no state: it reads the runs from disk on every request, and the page polls a small
+  `/state` and offers the new round rather than reloading under the author's cursor.
+- **The page never generates, edits prompts or keeps.** Those are the agent's, done in
+  the thread where the author can see and steer them. The page is where the author
+  sees and marks; everything it adds would be a second, weaker way to do what the
+  agent already does.
+- **Every mark saves as it is made.** A page that held marks in the browser until
+  Save let an author rate two runs, believe they had, and leave no `verdicts.yaml`:
+  nothing on the page said the marks were unsaved, and the agent, reading the disk,
+  saw no ratings. Each mark is merged into the run's file at once, validated whole
+  before it is written, and a card whose mark did not save says so in place.
+- **One name for an image, in the thread and on the page.** Without one, an agent
+  labelled candidates A to P on contact sheets it drew by hand. A name such as `3.4`
+  is short enough to say, and stable because a run is never written into again. It
+  counts through the whole run in brief order, because `candidates.yaml`'s `n`
+  restarts in each need and the contact sheets drawn from it would give two images
+  the same number.
+- **The agent reads the author in one command.** `review BRIEF --summary` lists every
+  run newest first with each candidate by name, its verdict and note, and a note per
+  need, which is where "less pensive" or "none of these look 50" goes: what the next
+  round should change.
 
 ## Phase 3 sketch: generated layouts
 
