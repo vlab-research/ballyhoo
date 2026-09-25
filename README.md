@@ -409,10 +409,14 @@ with the name, run, need and id it resolved to.
 
 - Rate with keep, maybe or drop, the issue boxes and a note. `k`, `m` and `d` rate the
   candidate last clicked, and the arrow keys move between candidates.
-- A name is required to save. Saving sends each changed run's verdicts at once and writes
-  its `verdicts.yaml` under that name, so one person rates a run. An invalid save is refused
-  with every problem, and nothing is written.
-- Opened as a file, as `preview` and each save write it, the page is read-only.
+- Every mark saves as it is made: each keep, maybe, drop, issue or note (once typing
+  pauses) is merged into the run's `verdicts.yaml`, dated that day. The page asks for your
+  name at the top on your first mark and remembers it in this browser. Each card says
+  whether its mark is saved, and a card whose mark is not saved has a dashed border and
+  says why, such as a run already rated by someone else: one person rates a run, until
+  every mark in it is cleared. Clicking a card's verdict again clears it; issues and a
+  note are saved only with a verdict.
+- Opened as a file, as `preview` and each saved mark write it, the page is read-only.
 - The server listens only on 127.0.0.1, and serves the page and files in the run or
   runs directory, nothing else. A run's files, verdicts included, can be broken by hand;
   `review RUN` then reports every problem and does not start, and a page of runs shows

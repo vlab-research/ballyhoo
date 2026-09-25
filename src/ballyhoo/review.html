@@ -2,7 +2,7 @@
 <!--
   The review page for a brief's runs, or for one run, filled in by review.page with the data
   review.page_data builds. `ballyhoo review BRIEF` serves it, polls /state to offer a new round
-  when one arrives, and saves a run's verdicts.yaml when the page posts to /verdicts?run=NAME;
+  when one arrives, and merges each mark the page posts to /verdicts into that run's verdicts.yaml;
   `ballyhoo preview` writes a read-only copy of one run into it. It loads nothing from the network.
   Decisions stay in Python: the page shows the data and posts what the person chose.
 -->
@@ -18,11 +18,11 @@
   #bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;
          padding: .5rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
   #rated-by { font: inherit; padding: .3rem .4rem; width: 14rem; }
-  #save { font: inherit; padding: .35rem 1.2rem; }
+  #rated-by.wanted { outline: 3px solid var(--maybe); }
+  #name-wanted { color: var(--maybe); font-weight: 600; }
   #status, .muted { color: var(--muted); }
   #status.dirty { color: var(--maybe); font-weight: 600; }
   #banner { margin: 0; padding: .6rem 1rem; background: #fff3cd; border-bottom: 1px solid #e5d18a; }
-  #errors { margin: 0; padding: .6rem 1rem .6rem 2rem; background: #ffebe9; color: #82071e; border-bottom: 1px solid #f3b7b3; }
   #new-round { font: inherit; padding: .35rem 1rem; background: var(--focus); color: #fff; border: 0; border-radius: 4px;
                cursor: pointer; }
   #filter label { margin-right: .5rem; white-space: nowrap; }
@@ -49,6 +49,7 @@
           padding: .75rem; display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
   .tile[hidden] { display: none; }
   .tile.focused { outline: 3px solid var(--focus); outline-offset: 1px; }
+  .tile.unsaved { border-style: dashed; }
   .tile.keep { border-left-color: var(--keep); } .tile.maybe { border-left-color: var(--maybe); } .tile.drop { border-left-color: var(--drop); }
   .images { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; }
   .thumb { display: block; width: 480px; max-width: 100%; height: auto; background: #eee; }
@@ -80,6 +81,8 @@
   .verdicts .keep[aria-pressed=true] { background: var(--keep); border-color: var(--keep); }
   .verdicts .maybe[aria-pressed=true] { background: var(--maybe); border-color: var(--maybe); }
   .verdicts .drop[aria-pressed=true] { background: var(--drop); border-color: var(--drop); }
+  .saved-state { margin-left: .6rem; font-size: 12px; color: var(--muted); }
+  .saved-state.failed { color: var(--drop); font-weight: 600; }
   .issue-boxes { display: flex; flex-wrap: wrap; gap: .15rem .8rem; }
   textarea { width: 100%; box-sizing: border-box; font: inherit; }
   button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; }
@@ -89,7 +92,7 @@
 <header id="bar">
   <strong id="title"></strong>
   <label>Your name <input id="rated-by" autocomplete="name" required></label>
-  <button id="save" type="button">Save</button>
+  <span id="name-wanted" hidden>enter your name to save your marks</span>
   <span id="status"></span>
   <span id="filter">show
     <label><input type="radio" name="filter" value="all" checked> all</label>
@@ -101,7 +104,6 @@
 </header>
 <p id="banner" hidden>Read-only: nothing on this page can be saved, because no ballyhoo server is behind it.
   To rate, run <code>ballyhoo review BRIEF</code> and open the address it prints.</p>
-<ul id="errors" hidden></ul>
 <main id="runs"></main>
 <script id="data" type="application/json">__BALLYHOO_DATA__</script>
 <script>
@@ -113,12 +115,16 @@ const KEYS = {k: "keep", m: "maybe", d: "drop"};
 const NAME_KEY = "ballyhoo-rated-by";
 const FILTER_KEY = "ballyhoo-filter";
 const POLL_MS = 3000;
+const NOTE_WAIT_MS = 800;  // a note is saved once typing pauses, not on every key
 const FILTERS = {all: () => true, unrated: v => !v, keep: v => v === "keep", undropped: v => v !== "drop"};
 const state = new Map();    // "<run>/<need>/<id>" -> what the person has chosen for that candidate
 const order = [];           // the keys in page order, for the arrow keys
 const summaries = {};       // "<run>/<need>" -> the element holding its summary table
 const progress = {};        // run -> the element counting its rated candidates
-const dirty = new Set();    // runs with marks not yet saved
+const ratedLines = {};      // run -> the element saying who rated it
+let saving = Promise.resolve();  // marks are posted one at a time, in the order they were made
+let rater = "";
+let anySaved = false;
 let focused = null;
 let filter = "all";
 
@@ -160,7 +166,14 @@ function paint(key) {
   for (const b of s.buttons) b.setAttribute("aria-pressed", String(b.dataset.verdict === s.verdict));
   s.tile.classList.remove(...DATA.verdicts);
   if (s.verdict) s.tile.classList.add(s.verdict);
+  s.tile.classList.toggle("unsaved", !s.saved);
   s.tile.hidden = !FILTERS[filter](s.verdict);
+}
+
+function showSaved(key, status, text) {
+  const s = state.get(key);
+  s.savedNode.className = "saved-state " + status;
+  s.savedNode.textContent = text;
 }
 
 function showProgress() {
@@ -168,13 +181,72 @@ function showProgress() {
     const mine = [...state.values()].filter(s => s.run === run);
     node.textContent = `${mine.filter(s => s.verdict).length} of ${mine.length} rated`;
   }
+  const unsaved = [...state.values()].filter(s => !s.saved).length;
   const status = document.getElementById("status");
-  status.className = dirty.size ? "dirty" : "";
-  if (dirty.size) status.textContent = `unsaved changes in ${[...dirty].join(", ")}`;
+  status.className = unsaved ? "dirty" : "";
+  status.textContent = unsaved ? `${unsaved} mark${unsaved > 1 ? "s" : ""} not saved`
+    : anySaved ? "every mark is saved to verdicts.yaml" : "";
 }
 
-function changed(key) {
-  dirty.add(state.get(key).run);
+function changed(key, wait) {
+  const s = state.get(key);
+  s.saved = false;
+  s.version++;
+  paint(key);
+  showProgress();
+  clearTimeout(s.timer);
+  if (wait) {
+    showSaved(key, "pending", "not saved yet");
+    s.timer = setTimeout(() => save(key), wait);
+  } else {
+    save(key);
+  }
+}
+
+function entry(s) {
+  const note = s.note.trim();
+  if (!s.verdict && !s.issues.size && !note) return null;
+  const e = {verdict: s.verdict};  // issues or a note without a verdict are sent, and refused with what to do
+  if (s.issues.size) e.issues = ISSUES.filter(i => s.issues.has(i));
+  if (note) e.note = note;
+  return e;
+}
+
+function askName() {
+  const input = document.getElementById("rated-by");
+  input.classList.add("wanted");
+  document.getElementById("name-wanted").hidden = false;
+  input.focus();
+}
+
+function save(key) {
+  const s = state.get(key);
+  clearTimeout(s.timer);
+  if (!EDITABLE || s.saved || s.queued) return;
+  if (!rater) {
+    showSaved(key, "failed", "not saved: enter your name at the top to save");
+    askName();
+    return;
+  }
+  s.queued = true;
+  showSaved(key, "saving", "saving…");
+  saving = saving.then(() => send(key));
+}
+
+async function send(key) {
+  const s = state.get(key);
+  s.queued = false;
+  const version = s.version;
+  const [ok, reply] = await post({run: s.run, rated_by: rater, need: s.need, candidate: s.id, entry: entry(s)});
+  if (s.version !== version) return;  // changed while posting: the later post's answer is the one to show
+  if (!ok) {
+    showSaved(key, "failed", "not saved: " + (reply.errors || ["the server refused the mark"]).join("; "));
+  } else {
+    s.saved = anySaved = true;
+    showSaved(key, "saved", entry(s) ? "saved" : "cleared");
+    for (const [need, t] of Object.entries(reply.summary)) summaries[`${s.run}/${need}`]?.replaceChildren(summaryTable(t));
+    ratedLines[s.run].textContent = reply.rated_by ? `rated by ${reply.rated_by} on ${reply.rated_on}` : "not rated yet";
+  }
   paint(key);
   showProgress();
 }
@@ -214,7 +286,9 @@ function checks(c) {
 function tile(run, need, c) {
   const key = `${run.name}/${need.name}/${c.id}`;
   const v = c.verdict || {verdict: null, issues: [], note: null};
-  const s = {run: run.name, need: need.name, id: c.id, verdict: v.verdict, issues: new Set(v.issues), note: v.note || ""};
+  const s = {run: run.name, need: need.name, id: c.id, verdict: v.verdict, issues: new Set(v.issues), note: v.note || "",
+             saved: true, version: 0, queued: false, timer: null};
+  s.savedNode = h("span", {class: "saved-state"}, c.verdict ? "saved" : "");
   state.set(key, s);
   order.push(key);
 
@@ -224,7 +298,7 @@ function tile(run, need, c) {
     h("input", {type: "checkbox", value: issue, checked: s.issues.has(issue), disabled: !EDITABLE,
       onchange: e => { e.target.checked ? s.issues.add(issue) : s.issues.delete(issue); changed(key); }}), " " + issue));
   const note = h("textarea", {rows: 2, placeholder: "note", disabled: !EDITABLE,
-    oninput: e => { s.note = e.target.value; changed(key); }});
+    oninput: e => { s.note = e.target.value; changed(key, NOTE_WAIT_MS); }, onchange: () => save(key)});
   note.value = s.note;
 
   const badge = !c.previewed ? h("span", {class: "badge warn"}, "not previewed")
@@ -261,7 +335,7 @@ function tile(run, need, c) {
         h("code", {}, c.id), ` ${c.width}×${c.height} · ${c.provider} `, badge),
       c.alt ? h("div", {class: "alt"}, c.alt) : null),
     h("details", {class: "more"}, h("summary", {}, more), h("div", {}, origin, checks(c), cutout, agent)),
-    h("div", {class: "controls"}, h("div", {class: "verdicts"}, s.buttons), h("div", {class: "issue-boxes"}, boxes), note));
+    h("div", {class: "controls"}, h("div", {class: "verdicts"}, s.buttons, s.savedNode), h("div", {class: "issue-boxes"}, boxes), note));
   paint(key);
   return s.tile;
 }
@@ -298,84 +372,27 @@ const STATUS = {sourcing: "sourcing: not ready to review", previewing: "previewi
 
 function runSection(run) {
   progress[run.name] = h("span", {class: "muted"});
-  const rated = run.rated_by ? `rated by ${run.rated_by} on ${run.rated_on}` : "not rated yet";
+  ratedLines[run.name] = h("span", {}, run.rated_by ? `rated by ${run.rated_by} on ${run.rated_on}` : "not rated yet");
   return h("details", {class: "run", id: `run-${run.name}`, open: run.open},
     h("summary", {},
       h("h2", {}, run.name),
       STATUS[run.status] ? h("span", {class: "badge warn"}, STATUS[run.status]) : null,
       h("div", {class: "run-meta"}, run.needs.map(n => n.name).join(", "),
-        run.needs.length ? " · " : null, progress[run.name], " · ", rated,
+        run.needs.length ? " · " : null, progress[run.name], " · ", ratedLines[run.name],
         run.agent ? ` · agent hints: ${run.agent.rated_by}` : null),
       changeList(run),
       run.errors.length ? h("ul", {class: "run-errors"}, run.errors.map(e => h("li", {}, e))) : null),
     run.needs.map(need => section(run, need)));
 }
 
-function today() {
-  const d = new Date();
-  return [d.getFullYear(), d.getMonth() + 1, d.getDate()].map((n, i) => String(n).padStart(i ? 2 : 4, "0")).join("-");
-}
-
-function showErrors(messages) {
-  const box = document.getElementById("errors");
-  box.replaceChildren(...messages.map(m => h("li", {}, m)));
-  box.hidden = !messages.length;
-  if (messages.length) box.scrollIntoView({block: "nearest"});
-}
-
-function payload(name, run) {
-  const needs = {};
-  for (const s of state.values()) {
-    if (s.run !== run) continue;
-    const note = s.note.trim();
-    if (!s.verdict && !s.issues.size && !note) continue;
-    const entry = {verdict: s.verdict};  // a note or issue without a verdict is sent, and refused by name
-    if (s.issues.size) entry.issues = ISSUES.filter(i => s.issues.has(i));
-    if (note) entry.note = note;
-    (needs[s.need] = needs[s.need] || {})[s.id] = entry;
-  }
-  return {rated_by: name, rated_on: today(), needs};
-}
-
-async function post(run, body) {
+async function post(body) {
   try {
-    const response = await fetch(`/verdicts?run=${encodeURIComponent(run)}`, {method: "POST",
-      headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const response = await fetch("/verdicts", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)});
     return [response.ok, await response.json()];
   } catch (e) {
     return [false, {errors: [`could not reach the ballyhoo server: ${e}`]}];
   }
-}
-
-async function save() {
-  const input = document.getElementById("rated-by");
-  const name = input.value.trim();
-  if (!name) {
-    showErrors(["Enter your name before saving: every verdict, and so every pick, names the person who made it."]);
-    input.focus();
-    return;
-  }
-  const status = document.getElementById("status");
-  status.textContent = "saving…";
-  const errors = [];
-  for (const run of [...dirty]) {
-    const [ok, reply] = await post(run, payload(name, run));
-    if (!ok) {
-      errors.push(...(reply.errors || ["the server refused the save"]).map(e => `${run}: ${e}`));
-      continue;
-    }
-    dirty.delete(run);
-    for (const [need, s] of Object.entries(reply.summary)) summaries[`${run}/${need}`]?.replaceChildren(summaryTable(s));
-  }
-  if (errors.length) {
-    status.textContent = "not saved";
-    showErrors(errors);
-    return;
-  }
-  try { localStorage.setItem(NAME_KEY, name); } catch (e) { /* storage blocked: the name is typed again next time */ }
-  showErrors([]);
-  showProgress();
-  status.textContent = `saved to verdicts.yaml at ${new Date().toLocaleTimeString()}`;
 }
 
 async function poll() {
@@ -397,15 +414,23 @@ document.getElementById("runs").append(...(DATA.runs.length ? DATA.runs.map(runS
 showProgress();
 
 const nameInput = document.getElementById("rated-by");
-const saveButton = document.getElementById("save");
 if (EDITABLE) {
-  try { nameInput.value = localStorage.getItem(NAME_KEY) || ""; } catch (e) { /* storage blocked */ }
-  saveButton.addEventListener("click", save);
-  window.addEventListener("beforeunload", e => { if (dirty.size) { e.preventDefault(); e.returnValue = ""; } });
+  try { rater = nameInput.value = (localStorage.getItem(NAME_KEY) || "").trim(); } catch (e) { /* storage blocked */ }
+  nameInput.addEventListener("change", () => {
+    rater = nameInput.value.trim();
+    try { localStorage.setItem(NAME_KEY, rater); } catch (e) { /* storage blocked: the name is asked again next time */ }
+    if (!rater) return;
+    nameInput.classList.remove("wanted");
+    document.getElementById("name-wanted").hidden = true;
+    for (const key of order) save(key);
+  });
+  window.addEventListener("beforeunload", e => {
+    if ([...state.values()].some(s => !s.saved)) { e.preventDefault(); e.returnValue = ""; }
+  });
   document.getElementById("new-round").addEventListener("click", () => location.reload());
   setTimeout(poll, POLL_MS);
 } else {
-  nameInput.disabled = saveButton.disabled = true;
+  nameInput.disabled = true;
   document.getElementById("banner").hidden = false;
 }
 try { setFilter(localStorage.getItem(FILTER_KEY) || "all"); } catch (e) { /* storage blocked: show all */ }
@@ -415,13 +440,8 @@ document.getElementById("filter").addEventListener("change", e => {
 });
 
 document.addEventListener("keydown", e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-    e.preventDefault();
-    if (EDITABLE) save();
-    return;
-  }
   if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) {
-    if (e.key === "Escape") e.target.blur();
+    if (e.key === "Escape" || (e.key === "Enter" && e.target === nameInput)) e.target.blur();
     return;
   }
   // A tile filtered out, or in a folded run, is not rendered, so it has no offsetParent.

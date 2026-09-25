@@ -6,6 +6,7 @@ need that is "previewed" has a checks.yaml written by hand.
 import contextlib
 import datetime
 import http.client
+import re
 import shutil
 import threading
 from pathlib import Path
@@ -20,7 +21,7 @@ from ballyhoo import art, cli, provenance, render, review_server, verdicts
 
 SMOKE_DESIGNS = Path(__file__).parents[2] / "smoke" / "designs"
 TODAY = datetime.datetime.now(datetime.timezone.utc).date()  # a run is named for its UTC day
-RATED_ON = datetime.date.today()  # the page stamps a save with the rater's own day, which is not the run's
+RATED_ON = datetime.date.today()  # the server dates a mark with the rater's own day, which is not the run's
 BAND = "photo-band/1080x1080"
 AGENT = "claude-code (claude-opus-5)"
 BRIEF = f"""designs: {SMOKE_DESIGNS}
@@ -77,6 +78,11 @@ def serving(folder):
 def served(run):
     with serving(run) as client:
         yield client
+
+
+def marking(client, run, candidate, entry, need="ke-woman", rated_by="A. Author"):
+    return client.post("/verdicts", json={"run": run, "rated_by": rated_by, "need": need, "candidate": candidate,
+                                          "entry": entry})
 
 
 def embedded(html):
@@ -159,8 +165,7 @@ def test_a_server_on_a_briefs_runs_shows_each_run_as_it_is_made_newest_first(sen
             (runs / first / need / "checks.yaml").write_text(yaml.safe_dump({"candidates": {}}))
         ready = served.get("/state").json()
         assert [r["status"] for r in ready["runs"]] == ["ready"]
-        reply = served.post(f"/verdicts?run={first}", json={"rated_by": "A. Author", "rated_on": TODAY.isoformat(),
-                                                           "needs": {"ke-woman": {"fake-bright-2": {"verdict": "keep"}}}})
+        reply = marking(served, first, "fake-bright-2", {"verdict": "keep"})
         assert reply.status_code == 200, reply.text
         assert served.get("/state").json() == ready, "a save is not a new round"
 
@@ -174,42 +179,64 @@ def test_a_server_on_a_briefs_runs_shows_each_run_as_it_is_made_newest_first(sen
         assert newer["changes"] == [{"need": "ke-woman", "change": "changed", "asks": [
             {"kind": "search", "provider": "fake", "diff": [["=", "bright old"], ["-", "village"], ["+", "town"]]}]}]
         assert older["rated_by"] == "A. Author" and newer["rated_by"] is None
-        assert served.post(f"/verdicts?run={second}", json={"rated_by": "A. Author", "rated_on": TODAY.isoformat(),
-                                                            "needs": {}}).status_code == 200
-        assert (runs / second / "verdicts.yaml").is_file()
+        assert marking(served, second, "fake-bright-2", {"verdict": "drop"}, rated_by="B. Other").status_code == 200
+        assert yaml.safe_load((runs / second / "verdicts.yaml").read_text())["rated_by"] == "B. Other"
 
 
-def test_an_invalid_save_is_refused_with_every_problem_and_writes_nothing(run, served):
+def test_an_invalid_mark_is_refused_with_every_problem_and_writes_nothing(run, served):
     before = files(run)
-    reply = served.post(f"/verdicts?run={run.name}", json={"rated_by": " ", "rated_on": TODAY.isoformat(), "needs": {"ke-woman": {
-        "fake-bright-9": {"verdict": "keep"}, "fake-bright-2": {"verdict": "keep", "issues": ["blurry"]}}}})
+    reply = marking(served, run.name, "fake-bright-9", {"verdict": "keep", "issues": ["blurry"]}, rated_by=" ")
     assert reply.status_code == 400
+    assert reply.json()["errors"] == ["rated_by is required: the name of whoever rated"]
+    reply = marking(served, run.name, "fake-bright-9", {"verdict": "keep", "issues": ["blurry"]})
     assert reply.json()["errors"] == [
-        "rated_by is required: the name of whoever rated",
         "ke-woman/fake-bright-9: not a candidate of ke-woman in this run",
-        f"ke-woman/fake-bright-2: unknown issue 'blurry' (known: {', '.join(verdicts.ISSUES)})"]
-    save = f"/verdicts?run={run.name}"
-    assert served.post(save, content=b'{"rated_by": "A"}', headers={"Content-Type": "text/plain"}).status_code == 415
-    assert served.post(save, content=b"{not json", headers={"Content-Type": "application/json"}).status_code == 400
-    for elsewhere in ("/verdicts", "/verdicts?run=..", "/verdicts?run=2026-01-01-1"):
-        assert served.post(elsewhere, json={"rated_by": "A"}).status_code == 404, elsewhere
+        f"ke-woman/fake-bright-9: unknown issue 'blurry' (known: {', '.join(verdicts.ISSUES)})"]
+    assert marking(served, run.name, "fake-bright-2", {"issues": ["crop"]}).json()["errors"] == [
+        "choose keep, maybe or drop: issues and a note are saved with a verdict"]
+    assert served.post("/verdicts", content=b'{"run": "x"}', headers={"Content-Type": "text/plain"}).status_code == 415
+    assert served.post("/verdicts", content=b"{not json", headers={"Content-Type": "application/json"}).status_code == 400
+    assert served.post("/verdicts", json=["a list"]).status_code == 400
+    for elsewhere in ("..", "2026-01-01-1", None):
+        assert marking(served, elsewhere, "fake-bright-2", {"verdict": "keep"}).status_code == 404, elsewhere
+    assert served.post(f"/verdicts?run={run.name}", json={"run": "..", "rated_by": "A"}).status_code == 404
+    assert served.post("/elsewhere", json={}).status_code == 404
     assert files(run) == before
 
 
-def test_a_save_writes_verdicts_and_keep_takes_the_keeps_as_picked_by_the_rater(run, served, tmp_path, capsys):
-    posted = {"rated_by": "A. Author", "rated_on": TODAY.isoformat(), "needs": {"ke-woman": {
-        "fake-bright-2": {"verdict": "keep"},
-        "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."},
-        "fake-bright-4": {"verdict": "drop", "issues": ["age"]}}}}
-    reply = served.post(f"/verdicts?run={run.name}", json=posted)
-    assert reply.status_code == 200, reply.text
-    assert reply.json()["saved"] == "verdicts.yaml"
-    summary = reply.json()["summary"]
+def test_a_mark_from_a_second_person_is_refused_until_the_first_clears_every_mark(run, served):
+    assert marking(served, run.name, "fake-bright-2", {"verdict": "keep"}).status_code == 200
+    saved = (run / "verdicts.yaml").read_text()
+    reply = marking(served, run.name, "fake-bright-3", {"verdict": "drop"}, rated_by="B. Other")
+    assert (reply.status_code, reply.json()["errors"]) == (400, [
+        "this run is rated by A. Author, and one person rates a run, so a mark from B. Other is not saved"])
+    assert (run / "verdicts.yaml").read_text() == saved
+
+    reply = marking(served, run.name, "fake-bright-2", None)
+    assert reply.status_code == 200 and (reply.json()["rated_by"], reply.json()["rated_on"]) == (None, None)
+    assert not (run / "verdicts.yaml").exists()
+    assert marking(served, run.name, "fake-bright-3", {"verdict": "drop"}, rated_by="B. Other").status_code == 200
+
+
+def test_each_mark_merges_into_verdicts_and_keep_takes_the_keeps_as_picked_by_the_rater(run, served, tmp_path, capsys):
+    marks = {"fake-bright-2": {"verdict": "keep"},
+             "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."},
+             "fake-bright-4": {"verdict": "drop", "issues": ["age"]}}
+    for candidate, entry in marks.items():
+        reply = marking(served, run.name, candidate, entry)
+        assert reply.status_code == 200, reply.text
+    assert marking(served, run.name, "fake-bright-4", {"verdict": "maybe"}).status_code == 200
+    assert marking(served, run.name, "fake-bright-4", None).status_code == 200
+    assert marking(served, run.name, "fake-bright-4", {"verdict": "drop", "issues": ["age"]}).status_code == 200
+    reply = marking(served, run.name, "fake-bright-2", {"verdict": "keep"}).json()
+    assert (reply["saved"], reply["rated_by"], reply["rated_on"]) == ("verdicts.yaml", "A. Author", RATED_ON.isoformat())
+    summary = reply["summary"]
     assert {q: (c["candidates"], c["keep"], c["drop"]) for q, c in summary["ke-woman"]["providers"]["fake"]["queries"].items()} \
         == {"bright village": (2, 2, 0), "bright old village": (2, 1, 1)}
     assert summary["ma-man"]["unrated"] == 2
 
-    assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {**posted, "rated_on": TODAY}
+    assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {
+        "rated_by": "A. Author", "rated_on": RATED_ON, "needs": {"ke-woman": marks}}
     assert [p.name for p in run.iterdir() if p.name.endswith(".tmp")] == []
     static = embedded((run / "review.html").read_text())
     assert static["editable"] is False and static["runs"][0]["needs"][0]["candidates"][1]["verdict"]["issues"] == ["crop"]
@@ -358,8 +385,12 @@ def test_review_serves_the_runs_next_to_a_brief_and_summarises_only_one_run(tmp_
 
 
 @pytest.mark.browser
-def test_a_person_rates_on_the_page_and_saving_writes_verdicts(run, served, tmp_path):
+def test_each_mark_on_the_page_is_saved_as_it_is_made(run, served, tmp_path):
     tile = f'article[data-key="{run.name}/ke-woman/{{}}"]'.format
+
+    def on_disk():
+        return yaml.safe_load((run / "verdicts.yaml").read_text())["needs"]["ke-woman"]
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=render.chrome_path())
         try:
@@ -367,19 +398,42 @@ def test_a_person_rates_on_the_page_and_saving_writes_verdicts(run, served, tmp_
             page.goto(str(served.base_url))
             three = page.locator(tile("fake-bright-3"))
             three.get_by_role("button", name="keep").click()
+            expect(three.locator(".saved-state")).to_have_text("not saved: enter your name at the top to save")
+            expect(three).to_have_class(re.compile(r"\bunsaved\b"))
+            expect(page.get_by_label("Your name")).to_be_focused()
+            assert not (run / "verdicts.yaml").exists()
+
+            page.get_by_label("Your name").fill("A. Author")
+            page.keyboard.press("Enter")
+            expect(three.locator(".saved-state")).to_have_text("saved")
+            expect(three).not_to_have_class(re.compile(r"\bunsaved\b"))
+            assert on_disk() == {"fake-bright-3": {"verdict": "keep"}}
+
             three.get_by_label("crop").check()
             three.get_by_placeholder("note").fill("Just room for the headline.")
             page.locator(f'{tile("fake-bright-2")} .head code').click()
             page.keyboard.press("d")
-
-            page.get_by_role("button", name="Save").click()
-            expect(page.locator("#errors")).to_contain_text("Enter your name")
-            assert not (run / "verdicts.yaml").exists()
-
-            page.get_by_label("Your name").fill("A. Author")
-            page.get_by_role("button", name="Save").click()
-            expect(page.locator("#status")).to_contain_text("saved to verdicts.yaml")
+            expect(page.locator("#status")).to_have_text("every mark is saved to verdicts.yaml")
+            expect(page.locator(f"#run-{run.name} .run-meta")).to_contain_text(f"rated by A. Author on {RATED_ON}")
+            assert on_disk() == {"fake-bright-2": {"verdict": "drop"},
+                                 "fake-bright-3": {"verdict": "keep", "issues": ["crop"],
+                                                   "note": "Just room for the headline."}}
+            page.keyboard.press("d")
+            expect(page.locator(f'{tile("fake-bright-2")} .saved-state')).to_have_text("cleared")
+            assert "fake-bright-2" not in on_disk()
             page.screenshot(path=tmp_path / "review.png")
+
+            page.reload()
+            expect(page.get_by_label("Your name")).to_have_value("A. Author")
+            page.get_by_label("Your name").fill("B. Other")
+            page.keyboard.press("Enter")
+            four = page.locator(tile("fake-bright-4"))
+            four.get_by_role("button", name="maybe").click()
+            expect(four.locator(".saved-state")).to_have_text(
+                "not saved: this run is rated by A. Author, and one person rates a run, so a mark from B. Other is not saved")
+            expect(four).to_have_class(re.compile(r"\bunsaved\b"))
+            expect(page.locator("#status")).to_have_text("1 mark not saved")
+            assert "fake-bright-4" not in on_disk()
 
             static = browser.new_page()
             static.goto((run / "review.html").as_uri())
@@ -391,7 +445,6 @@ def test_a_person_rates_on_the_page_and_saving_writes_verdicts(run, served, tmp_
             browser.close()
     assert yaml.safe_load((run / "verdicts.yaml").read_text()) == {
         "rated_by": "A. Author", "rated_on": RATED_ON, "needs": {"ke-woman": {
-            "fake-bright-2": {"verdict": "drop"},
             "fake-bright-3": {"verdict": "keep", "issues": ["crop"], "note": "Just room for the headline."}}}}
 
 

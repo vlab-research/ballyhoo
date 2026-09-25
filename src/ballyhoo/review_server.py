@@ -4,16 +4,18 @@ The shell for review.py and verdicts.py, through runs.py. It holds no state:
 GET / serves the page built from the runs as they are on disk, so a run made
 while it is up appears on the next load; GET /state answers what the page polls
 to notice one; GET of any other path serves that file from inside the run or
-runs directory and nothing outside it; POST /verdicts?run=NAME validates the
-posted verdicts and writes that run's verdicts.yaml whole, or writes nothing and
-answers 400 with every problem.
+runs directory and nothing outside it; POST /verdicts takes one mark on one
+candidate of a run and merges it into that run's verdicts.yaml, or writes
+nothing and answers 400 with every problem.
 """
+import datetime
 import json
 import mimetypes
 import shutil
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 from . import review, runs
 
@@ -33,6 +35,8 @@ def run_file(root, request_path):
 def handler(root, providers):
     root = Path(root).resolve()
     single = runs.is_run(root)
+    # Each mark is read, merged and written whole; two at once would each drop the other's.
+    saving = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -78,27 +82,31 @@ def handler(root, providers):
         def do_POST(self):
             if not self.from_this_host():
                 return
-            request = urlsplit(self.path)
-            if request.path != "/verdicts":
-                return self.send_json(404, {"errors": ["verdicts are posted to /verdicts?run=NAME"]})
+            if urlsplit(self.path).path != "/verdicts":
+                return self.send_json(404, {"errors": ["marks are posted to /verdicts"]})
             # Another site's form can post text/plain to this server without the browser asking first, but not JSON.
             if self.headers.get_content_type() != "application/json":
-                return self.send_json(415, {"errors": ["verdicts must be sent as application/json"]})
+                return self.send_json(415, {"errors": ["a mark must be sent as application/json"]})
             try:
                 length = int(self.headers.get("Content-Length", ""))
             except ValueError:
-                return self.send_json(411, {"errors": ["a save needs a Content-Length"]})
+                return self.send_json(411, {"errors": ["a mark needs a Content-Length"]})
             if length > MAX_BODY:
-                return self.send_json(413, {"errors": [f"a save is at most {MAX_BODY} bytes"]})
+                return self.send_json(413, {"errors": [f"a mark is at most {MAX_BODY} bytes"]})
             try:
                 data = json.loads(self.rfile.read(length))
             except ValueError as e:
                 return self.send_json(400, {"errors": [f"not JSON: {e}"]})
-            name = parse_qs(request.query).get("run", [None])[0]
+            if not isinstance(data, dict):
+                return self.send_json(400, {"errors": ["a mark is a map with run, rated_by, need, candidate, entry"]})
+            name = data.get("run")
             run = next((r for r in runs.served(root, single) if r.name == name), None)
             if run is None:
-                return self.send_json(404, {"errors": [f"no run {name!r} here to save verdicts to"]})
-            reply, errors = runs.save_verdicts(run, providers, data)
+                return self.send_json(404, {"errors": [f"no run {name!r} here to save a mark to"]})
+            mark = {k: v for k, v in data.items() if k != "run"}
+            with saving:
+                # The rater's day: the server runs on the rater's own machine.
+                reply, errors = runs.save_mark(run, providers, mark, datetime.date.today())
             if errors:
                 return self.send_json(400, {"errors": errors})
             self.send_json(200, reply)

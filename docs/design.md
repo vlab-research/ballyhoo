@@ -302,7 +302,7 @@ working ad, and a person rates the rest against the need.
   headline's contrast would not depend on the photo, and a preview could never
   screen out a dark one.
 - **A pick names a person, so verdicts are the one human input, and they are a file.**
-  The review page saves `verdicts.yaml` whole, naming who rated, and `keep --verdicts`
+  The review page writes `verdicts.yaml`, naming who rated, and `keep --verdicts`
   takes picks only from it. An agent may rate a run too, in `agent-verdicts.yaml`, which
   helps tune queries; the page shows its verdicts as hints and never fills in the
   person's controls, and `keep` refuses them. A record saying a person chose an image

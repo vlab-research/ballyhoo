@@ -5,7 +5,7 @@ brief and finds its templates, runs each source job through sourcing.py into its
 need's folder (downloading stock originals), and writes the manifest. Previewing
 a run renders each candidate into its need's templates through render.py,
 writing previews/ and checks.yaml into the need's folder, and review.html into
-the run. Reviewing reads what the page shows, saves verdicts.yaml, and keeps the
+the run. Reviewing reads what the page shows, merges each mark into verdicts.yaml, and keeps the
 candidates it rates keep. The pure modules decide; this module carries it out.
 """
 import asyncio
@@ -315,24 +315,33 @@ def write_review(run, providers):
     return errors
 
 
-def save_verdicts(run, providers, data):
-    """Validate a verdicts map the page posted and write it to verdicts.yaml, or write nothing.
+def save_mark(run, providers, mark, today):
+    """Merge one mark the page posted into verdicts.yaml, or write nothing (see verdicts.merge).
 
-    Returns (reply, errors): the reply names the file and holds the new summary. review.html is
-    rewritten to show the verdicts too.
+    Returns (reply, errors): the reply names the file, who rated the run and when, and holds the new
+    summary. A run left with no marks has its verdicts.yaml removed. review.html is rewritten to show
+    the verdicts too.
     """
     run = Path(run).resolve()
     needs, _, found, checks, errors = read(run, providers)
-    agent, problems = read_verdicts(run, found, verdicts.AGENT_FILE)
-    errors += problems
+    person, problems = read_verdicts(run, found)
+    agent, more = read_verdicts(run, found, verdicts.AGENT_FILE)
+    errors += problems + more
     if not errors:
-        parsed, errors = verdicts.parse(data, candidate_ids(found))
+        merged, errors = verdicts.merge(person, mark, candidate_ids(found), today)
     if errors:
         return None, errors
-    write_atomically(run / verdicts.FILE, yaml.safe_dump(verdicts.dump(parsed), sort_keys=False, allow_unicode=True))
-    r = Review(run.name, {n.name: n.need for n in needs}, found, checks, parsed, agent)
+    if not verdicts.marked(merged):
+        merged = None
+        (run / verdicts.FILE).unlink(missing_ok=True)
+    else:
+        write_atomically(run / verdicts.FILE,
+                         yaml.safe_dump(verdicts.dump(merged), sort_keys=False, allow_unicode=True))
+    r = Review(run.name, {n.name: n.need for n in needs}, found, checks, merged, agent)
     write_atomically(run / review.PAGE, review_page(run, r))
-    return {"saved": verdicts.FILE, "summary": review.summary(found, parsed)}, []
+    return {"saved": verdicts.FILE, "rated_by": merged.rated_by if merged else None,
+            "rated_on": merged.rated_on.isoformat() if merged else None,
+            "summary": review.summary(found, merged)}, []
 
 
 def keep_verdicts(run, need, to_dir, providers, http):
