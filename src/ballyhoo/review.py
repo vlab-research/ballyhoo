@@ -12,32 +12,20 @@ review_server.py serves it for a run or a directory of runs.
 import difflib
 import hashlib
 import json
-import re
 
+from . import names
+from .names import run_name, run_order
 from .preview import URL
 from .verdicts import FILE, ISSUES, VERDICTS
 
 PAGE = "review.html"
 MARK = "__BALLYHOO_DATA__"  # where the template takes its data
-RUN_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})-(\d+)")
 CONTEXT = 3  # words of unchanged prompt kept either side of a change
-
-
-def run_name(name):
-    """A run folder's (date, number), or None when the name is not `<date>-<n>`."""
-    m = RUN_NAME.fullmatch(name)
-    return (m[1], int(m[2])) if m else None
 
 
 def is_run(name, has_manifest):
     """Whether a folder in a runs directory is a run: it has a manifest, or is named as one still being sourced."""
     return has_manifest or run_name(name) is not None
-
-
-def run_order(names):
-    """Run names newest first: by date, then number (2026-09-24-10 after -9); other names last."""
-    named = sorted((n for n in names if run_name(n)), key=run_name, reverse=True)
-    return named + sorted((n for n in names if not run_name(n)), reverse=True)
 
 
 def newest(files):
@@ -198,10 +186,10 @@ def _verdict(v):
     return None if v is None else {"verdict": v.verdict, "issues": list(v.issues), "note": v.note}
 
 
-def _candidate(need, folder, c, checked, verdicts, agent):
+def _candidate(need, folder, c, number, checked, verdicts, agent):
     record = c.provenance
     return {
-        "id": c.id, "width": c.width, "height": c.height, "thumb": _path(folder, c.thumb),
+        "id": c.id, "number": number, "width": c.width, "height": c.height, "thumb": _path(folder, c.thumb),
         "full": _path(folder, c.full),
         "source": record.get("source"), "provider": record.get("provider"),
         "queries": list(c.queries), "prompt": record.get("prompt"),
@@ -230,17 +218,24 @@ def run_data(needs, found, checks, verdicts, agent, base=""):
     is the run folder's path from the page, with its trailing slash: empty for a page in the run.
     """
     tallies = summary(found, verdicts)
+    numbered = names.numbers([(name, [c.id for c in found.get(name, [])]) for name in needs])
     return {
         "rated_by": verdicts.rated_by if verdicts else None,
         "rated_on": verdicts.rated_on.isoformat() if verdicts else None,
         "agent": {"rated_by": agent.rated_by, "rated_on": agent.rated_on.isoformat()} if agent else None,
         "needs": [{"name": name, "need": text, "has_candidates": name in found, "previewed": name in checks,
                    "copy": checks[name].get("copy") if name in checks else None, "summary": tallies.get(name),
-                   "candidates": [_candidate(name, f"{base}{name}", c,
+                   "candidates": [_candidate(name, f"{base}{name}", c, numbered[name, c.id],
                                              checks.get(name, {}).get("candidates", {}).get(c.id), verdicts, agent)
                                   for c in found.get(name, [])]}
                   for name, text in needs.items()],
     }
+
+
+def _named(data, prefix):
+    """A run's data with each candidate's name on the page, `<prefix>.<number>`."""
+    return {**data, "needs": [{**need, "candidates": [{**c, "name": f"{prefix}.{c['number']}"}
+                                                      for c in need["candidates"]]} for need in data["needs"]]}
 
 
 def page_data(runs, editable, digest):
@@ -248,12 +243,14 @@ def page_data(runs, editable, digest):
 
     Each of `runs` is {"name", "status", "errors", "requests", "data"}: `requests` is the manifest's,
     or None when there is no readable manifest; `data` is run_data, or None when the run cannot be
-    shown yet or has errors. Each run's changes are against the next older run with requests, and
+    shown yet or has errors. Each candidate is named as names.py says, its run part short where that
+    is unambiguous among these runs. Each run's changes are against the next older run with requests, and
     None for the oldest. `editable` says whether a server is behind the page to save to; `digest` is
     the state digest the page compares with /state's.
     """
     by_name = {r["name"]: r for r in runs}
     ordered = [by_name[n] for n in run_order(list(by_name))]
+    prefixes = names.prefixes(list(by_name))
     opened = next((r["name"] for r in ordered if r["status"] != "sourcing"), None)
     shown = []
     for i, r in enumerate(ordered):
@@ -264,7 +261,8 @@ def page_data(runs, editable, digest):
             "open": r["name"] == opened,
             "changes": changes(asks(older["requests"]), asks(r["requests"]))
             if older and r["requests"] is not None else None,
-            **(r["data"] or {"rated_by": None, "rated_on": None, "agent": None, "needs": []})})
+            **_named(r["data"] or {"rated_by": None, "rated_on": None, "agent": None, "needs": []},
+                     prefixes[r["name"]])})
     return {"editable": editable, "verdicts": list(VERDICTS), "issues": dict(ISSUES), "state": digest, "runs": shown}
 
 

@@ -391,6 +391,14 @@ image), its provider and alt text; its queries or prompt, the photographer and l
 or the model and seed, the check failures, and an agent's verdict when there is one are
 folded beneath.
 
+**Names.** Each card shows its candidate's name large, such as **3.4**: the fourth
+candidate of run 3, counting through the run's needs in the order of its `brief.yaml`
+and each need's candidates in `candidates.yaml` order (not `candidates.yaml`'s own `n`,
+which restarts in every need). Run numbers restart each day, so the full name is
+`2026-09-24-3.4`; the page shows it in full wherever another run it shows is also
+numbered 3. A name never changes once the run is sourced, so the author and the agent
+can use it in the thread.
+
 - Rate with keep, maybe or drop, the issue boxes and a note. `k`, `m` and `d` rate the
   candidate last clicked, and the arrow keys move between candidates.
 - A name is required to save. Saving sends each changed run's verdicts at once and writes
@@ -523,6 +531,7 @@ a pure function, and the browser only measures and takes screenshots.
 | `brief.py` | what a brief sources: validates it, expands it into jobs, estimates their cost, checks every request can be built, names runs |
 | `preview.py` | what a preview renders: which candidate goes into which template, file names, whether a template has an `<img id="scene">`, and `checks.yaml` |
 | `verdicts.py` | whether a verdicts map is valid for a run, and what `keep --verdicts` keeps |
+| `names.py` | run names and their order, and candidates' names (`3.4`): numbering, the short form a page shows, and which candidate a name picks |
 | `review.py` | what the review page shows, the summary of verdicts per need, provider and query or prompt, and the page from its template (`review.html`) |
 | `providers/` | each API's requests, candidates or images from its replies, and its prices |
 | `render.py` | nothing; it is the shell. Reads files, drives Chrome (putting a candidate into a slot when asked), writes PNGs |

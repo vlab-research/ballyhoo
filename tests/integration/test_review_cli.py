@@ -114,6 +114,7 @@ def test_the_page_shows_the_run_as_it_is_and_serves_its_files_but_nothing_outsid
     assert (three["id"], three["queries"], three["pass"], three["previews"][0]["failures"]) == (
         "fake-bright-3", ["bright village", "bright old village"], False, ["contrast 1.17:1 is below 3:1"])
     assert (four["previewed"], four["pass"]) == (False, None)
+    assert [c["name"] for n in shown["needs"] for c in n["candidates"]] == ["1.1", "1.2", "1.3", "1.4", "1.5"]
 
     thumb = served.get(f"/{two['thumb']}")
     assert (thumb.status_code, thumb.headers["content-type"]) == (200, "image/jpeg")
@@ -379,6 +380,7 @@ def test_the_runs_page_folds_older_runs_filters_by_verdict_and_offers_a_new_roun
             expect(page.locator(f"#run-{second}")).to_have_attribute("open", "")
             expect(page.locator(tile(first, "fake-bright-2"))).to_be_hidden()
             expect(page.locator(tile(second, "fake-bright-2"))).to_be_visible()
+            expect(page.locator(f'{tile(second, "fake-bright-3")} .head .name')).to_have_text("2.2")
 
             page.get_by_label("unrated").check()
             expect(page.locator(tile(second, "fake-bright-2"))).to_be_hidden()

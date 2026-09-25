@@ -68,6 +68,7 @@
   .cutout figcaption { font-size: 12px; }
   .failures { color: var(--drop); margin: .2rem 0 0; padding-left: 1rem; }
   .head code { font-weight: 600; }
+  .head .name { font-size: 1.8rem; font-weight: 700; line-height: 1; margin-right: .3rem; vertical-align: -.2rem; }
   .badge { display: inline-block; padding: 0 .4rem; border-radius: 3px; font-size: 12px; font-weight: 600; }
   .badge.fail { background: #ffebe9; color: var(--drop); } .badge.warn { background: #fff3cd; color: #6b4b00; }
   .alt { font-style: italic; }
@@ -256,7 +257,8 @@ function tile(run, need, c) {
       c.previews.length ? h("div", {class: "previews"}, c.previews.map(p => preview(c, p))) : thumb,
       side ? h("div", {class: "side"}, side) : null),
     h("div", {class: "meta"},
-      h("div", {class: "head"}, h("code", {}, c.id), ` ${c.width}×${c.height} · ${c.provider} `, badge),
+      h("div", {class: "head"}, h("span", {class: "name", title: `say ${c.name} to name this image`}, c.name), " ",
+        h("code", {}, c.id), ` ${c.width}×${c.height} · ${c.provider} `, badge),
       c.alt ? h("div", {class: "alt"}, c.alt) : null),
     h("details", {class: "more"}, h("summary", {}, more), h("div", {}, origin, checks(c), cutout, agent)),
     h("div", {class: "controls"}, h("div", {class: "verdicts"}, s.buttons), h("div", {class: "issue-boxes"}, boxes), note));

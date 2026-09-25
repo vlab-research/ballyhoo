@@ -178,6 +178,18 @@ def test_the_page_shows_runs_newest_first_with_the_newest_sourced_one_open_and_w
     assert page_data([], editable=True, digest="x")["runs"] == []
 
 
+def test_each_candidate_is_named_by_its_number_in_the_run_with_its_run_short_where_that_is_unambiguous():
+    found = {"ke-woman": FOUND["ke-woman"][:2], "ma-man": FOUND["ma-man"]}
+    one = run_data({"ke-woman": "A Kenyan woman.", "down": "Anything.", "ma-man": "A Moroccan man."}, found, {},
+                   None, None)
+    assert [[c["number"] for c in n["candidates"]] for n in one["needs"]] == [[1, 2], [], [3]]
+    d = page_data([entry("2026-09-24-3", data=one), entry("2026-09-25-1", data=one), entry("2026-09-24-1", data=one)],
+                  editable=True, digest="x")
+    assert [[c["name"] for n in r["needs"] for c in n["candidates"]] for r in d["runs"]] == [
+        ["2026-09-25-1.1", "2026-09-25-1.2", "2026-09-25-1.3"], ["3.1", "3.2", "3.3"],
+        ["2026-09-24-1.1", "2026-09-24-1.2", "2026-09-24-1.3"]]
+
+
 def test_the_page_embeds_its_data_so_no_text_in_it_can_end_the_script():
     template = '<script id="data" type="application/json">__BALLYHOO_DATA__</script>'
     html = page(template, {"note": "</script><b>ñ"})
