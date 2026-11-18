@@ -180,3 +180,55 @@ def test_a_drawing_put_into_the_figure_slot_keeps_its_shape_and_stands_on_the_sl
     assert abs((right - left) / (bottom - top) - 3 / 4) < 0.02, "a 3:4 drawing is not stretched to a square slot"
     assert (bottom - top, bottom) == (200, 400), "it fills the slot's height and stands on its bottom edge"
     assert abs((left + right) / 2 - 300) <= 1, "it is centred across the slot"
+
+
+FINE_TEMPLATE = TEMPLATE.replace(
+    "</style>",
+    "  #fine-print { left: 0; top: 360px; width: 400px; height: 40px; overflow: hidden; background: #fff;"
+    " font: 400 12px/1.2 sans-serif; }\n  #canvas.has-fine-print #figure { top: 110px; }\n</style>",
+).replace("</div>\n", '  <p id="fine-print"><span>{{fine_print}}</span></p>\n</div>\n')
+
+FINE_COPY = """demo:
+  AR:
+    con:
+      headline: "Hola."
+      fine_print: "Si calificás y completás la encuesta."
+    sin: "Hola."
+"""
+
+
+def strip_pixel(path):
+    with Image.open(path) as im:
+        return im.convert("RGB").getpixel((390, 395))
+
+
+def test_fine_print_fills_its_slot_and_is_removed_when_a_variant_has_none(tmp_path):
+    f = project(tmp_path, FINE_COPY, FINE_TEMPLATE)
+    results, errors = render.run(f)
+    assert not errors and statuses(results) == {"con": "ok", "sin": "ok"}
+    # The figure fills the bottom right corner unless the fine-print strip is there to cover it.
+    assert strip_pixel(tmp_path / "out" / "demo_AR_con_400x400.png") == (255, 255, 255)
+    assert strip_pixel(tmp_path / "out" / "demo_AR_sin_400x400.png") == (40, 60, 80)
+
+
+def test_editing_fine_print_rerenders_only_that_variant(tmp_path):
+    f = project(tmp_path, FINE_COPY, FINE_TEMPLATE)
+    render.run(f)
+    f.write_text(f.read_text().replace("completás la encuesta.", "completás la encuesta corta."))
+    results, _ = render.run(f)
+    assert statuses(results) == {"con": "ok", "sin": "skip"}
+
+
+def test_fine_print_that_overflows_its_box_fails(tmp_path):
+    long = " ".join(["condición"] * 60)
+    f = project(tmp_path, f'demo:\n  AR:\n    con:\n      headline: "Hola."\n      fine_print: "{long}"\n',
+                FINE_TEMPLATE)
+    [result], _ = render.run(f)
+    assert result.status == "FAIL" and "fine print overflows #fine-print" in result.message
+
+
+def test_fine_print_on_a_template_without_the_slot_fails(tmp_path):
+    f = project(tmp_path, FINE_COPY)
+    results, _ = render.run(f)
+    assert statuses(results) == {"con": "FAIL", "sin": "ok"}
+    assert "template has no #fine-print" in [r for r in results if r.status == "FAIL"][0].message

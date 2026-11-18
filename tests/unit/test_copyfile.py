@@ -105,3 +105,19 @@ def test_markup_escapes_html_before_marking_emphasis():
 
 def test_markup_marks_each_emphasis_separately():
     assert markup("*Tu opinión cuenta.* Respondé *ya*.") == "<em>Tu opinión cuenta.</em> Respondé <em>ya</em>."
+
+
+def test_a_variant_map_carries_fine_print_and_a_plain_string_carries_none():
+    jobs, errors = expand('dogs-band:\n  MA:\n    con:\n      headline: "Hola."\n      fine_print: " Letra chica. "\n'
+                          '    sin: "Hola."\n')
+    assert errors == []
+    assert {j.variant: (j.text, j.fine_print) for j in jobs} == {"con": ("Hola.", "Letra chica."), "sin": ("Hola.", None)}
+
+
+def test_a_variant_map_needs_a_headline_and_takes_no_other_keys():
+    jobs, errors = expand('dogs-band:\n  MA:\n    a:\n      fine_print: "Letra chica."\n'
+                          '    b:\n      headline: "Hola."\n      small: "x"\n    c:\n      headline: "Hola."\n      fine_print: ""\n')
+    assert jobs == []
+    assert errors == ["dogs-band/MA/a: text must be a non-empty string",
+                      "dogs-band/MA/b: unknown keys small: a variant map takes headline and fine_print",
+                      "dogs-band/MA/c: fine_print must be a non-empty string"]

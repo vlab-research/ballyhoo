@@ -55,15 +55,28 @@ FIGURE_ONLY = """html, body, #canvas { background: transparent !important; }
   #canvas #figure { visibility: visible !important; }"""
 
 # Put the copy in and wait until every font and image has loaded (or failed loudly).
-PREPARE_JS = """async (copyHtml) => {
+# A template's #fine-print is removed when the variant has none, so a design can offer it
+# without every study having to fill it; #canvas.has-fine-print lets the layout make room.
+PREPARE_JS = """async ([copyHtml, finePrintHtml]) => {
   const canvas = document.getElementById('canvas');
   const headline = document.getElementById('headline');
   if (!canvas || !headline) throw new Error('template needs #canvas and #headline');
-  const slot = [headline, ...headline.querySelectorAll('*')].find(
-    e => e.children.length === 0 && e.textContent.trim() === '{{text}}');
+  const slotIn = (box, marker) => [box, ...box.querySelectorAll('*')].find(
+    e => e.children.length === 0 && e.textContent.trim() === marker);
+  const slot = slotIn(headline, '{{text}}');
   if (!slot) throw new Error('#headline needs an element whose only content is {{text}}');
   slot.innerHTML = copyHtml;
   slot.setAttribute('data-copy', '');
+  const fine = document.getElementById('fine-print');
+  if (finePrintHtml === null) {
+    if (fine) fine.remove();
+  } else {
+    if (!fine) throw new Error('the copy has fine_print but the template has no #fine-print');
+    const fineSlot = slotIn(fine, '{{fine_print}}');
+    if (!fineSlot) throw new Error('#fine-print needs an element whose only content is {{fine_print}}');
+    fineSlot.innerHTML = finePrintHtml;
+    canvas.classList.add('has-fine-print');
+  }
   await Promise.all([...document.fonts].map(f => f.load().catch(() => {
     throw new Error('font failed to load: ' + f.family); })));
   await document.fonts.ready;
@@ -129,6 +142,14 @@ MEASURE_JS = """(sizes) => {
 }"""
 
 SET_SIZE_JS = "(size) => { document.getElementById('headline').style.fontSize = size + 'px'; }"
+
+# Fine print is set at the template's size, never shrunk, so all there is to check is that it fits its box.
+FINE_PRINT_OVERFLOW_JS = """() => {
+  const f = document.getElementById('fine-print');
+  if (!f) return null;
+  return {over: f.scrollHeight > f.clientHeight + 1 || f.scrollWidth > f.clientWidth + 1,
+          content: [f.scrollWidth, f.scrollHeight], box: [f.clientWidth, f.clientHeight]};
+}"""
 
 
 class TemplateError(Exception):
@@ -200,7 +221,9 @@ def inputs_hash(job):
         if not path.is_file():
             raise FileNotFoundError(f"{job.template} references missing file {ref}")
         ref_digests[ref] = file_digest(path)
-    return cache.inputs_digest(code_digest(), job.text, source, ref_digests)
+    # Fine print joins the headline's part only when there is some, so creatives without it keep their hash.
+    text = job.text if job.fine_print is None else f"{job.text}\0{job.fine_print}"
+    return cache.inputs_digest(code_digest(), text, source, ref_digests)
 
 
 def stored_hash(path):
@@ -219,8 +242,8 @@ async def screenshot(page, W, H, css=None, omit_background=False):
     return np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))
 
 
-async def render(browser, template, text, swap=None):
-    """Render a template with a headline. Returns (image, failures, summary, fit).
+async def render(browser, template, text, swap=None, fine_print=None):
+    """Render a template with a headline and, optionally, fine print. Returns (image, failures, summary, fit).
 
     `swap` is (slot id, image path): the page shows that image in the slot instead of the template's own.
     """
@@ -233,7 +256,7 @@ async def render(browser, template, text, swap=None):
         await page.goto(template.as_uri(), wait_until="load")
         if swap:
             await page.evaluate(SWAP_JS, [swap[0], swap_url])
-        await page.evaluate(PREPARE_JS, copyfile.markup(text))
+        await page.evaluate(PREPARE_JS, [copyfile.markup(text), None if fine_print is None else copyfile.markup(fine_print)])
         info = await page.evaluate(READ_JS, list(dict.fromkeys(SLOTS + (swap[0],))) if swap else list(SLOTS))
         settings, errors = fit.parse_settings(info["attrs"], info["start"])
         images, problems = checks.slot_images(info["images"])
@@ -243,6 +266,7 @@ async def render(browser, template, text, swap=None):
         measured = await page.evaluate(MEASURE_JS, fit.candidate_sizes(settings))
         chosen = fit.choose([fit.measurement_from_page(m) for m in measured], settings.max_lines)
         await page.evaluate(SET_SIZE_JS, chosen.size)
+        fine = await page.evaluate(FINE_PRINT_OVERFLOW_JS)
         full = await screenshot(page, W, H)
         notext = await screenshot(page, W, H, TEXT_COLOUR.format("transparent"))
         black_text = await screenshot(page, W, H, TEXT_COLOUR.format("#000"))
@@ -254,6 +278,9 @@ async def render(browser, template, text, swap=None):
                                         black_text, white_text, None if figure is None else figure[..., 3], images)
     if swap:
         failures = checks.swap_failures(images, swap[0], swap_url) + failures
+    if fine and fine["over"]:
+        failures = [f"fine print overflows #fine-print: needs {fine['content'][0]}x{fine['content'][1]}px, "
+                    f"has {fine['box'][0]}x{fine['box'][1]}px"] + failures
     return full[..., :3], failures, summary, chosen
 
 
@@ -267,7 +294,7 @@ async def process(browser, sem, job, out_dir, check, force):
             if not failures:
                 if not cache.should_render(stored_hash(out) if out.exists() else None, digest, check, force):
                     return "skip", "up to date", None
-                image, failures, summary, chosen = await render(browser, job.template, job.text)
+                image, failures, summary, chosen = await render(browser, job.template, job.text, fine_print=job.fine_print)
         except Exception as e:  # attribute every failure to its creative
             return "FAIL", f"{type(e).__name__}: {e}", None
     if failures:

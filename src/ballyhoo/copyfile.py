@@ -21,6 +21,7 @@ class Job:
     variant: str
     text: str
     template: Path
+    fine_print: str | None = None
 
     @property
     def size(self):
@@ -56,13 +57,30 @@ def design_names(data):
     return [str(name) for name in data if name not in RESERVED]
 
 
-def variant_problem(variant, text):
+VARIANT_KEYS = ("headline", "fine_print")
+
+
+def variant_copy(value):
+    """(headline, fine print or None) from a variant's value: a headline, or a map of headline and fine_print."""
+    if isinstance(value, dict):
+        return value.get("headline"), value.get("fine_print")
+    return value, None
+
+
+def variant_problem(variant, value):
     if not isinstance(variant, str) or not SLUG.match(variant):
         return "variant names are lowercase slugs"
+    if isinstance(value, dict):
+        unknown = sorted(str(k) for k in value if k not in VARIANT_KEYS)
+        if unknown:
+            return f"unknown keys {', '.join(unknown)}: a variant map takes {' and '.join(VARIANT_KEYS)}"
+    text, fine_print = variant_copy(value)
     if not isinstance(text, str) or not text.strip():
         return "text must be a non-empty string"
     if text.count("*") % 2:
         return f"unbalanced * in {text!r}"
+    if fine_print is not None and (not isinstance(fine_print, str) or not fine_print.strip()):
+        return "fine_print must be a non-empty string"
     return None
 
 
@@ -93,12 +111,14 @@ def parse(data, templates, root=None):
                 # A list would make output keys depend on position; see docs/design.md.
                 errors.append(f"{design}/{country}: variants must be a named map, not a {type(variants).__name__}")
             else:
-                for variant, text in variants.items():
-                    problem = variant_problem(variant, text)
+                for variant, value in variants.items():
+                    problem = variant_problem(variant, value)
                     if problem:
                         errors.append(f"{design}/{country}/{variant}: {problem}")
                     else:
-                        jobs += [Job(design, country, variant, text.strip(), t) for t in found]
+                        text, fine_print = variant_copy(value)
+                        fine_print = fine_print and fine_print.strip()
+                        jobs += [Job(design, country, variant, text.strip(), t, fine_print) for t in found]
     return jobs, errors
 
 
@@ -109,5 +129,5 @@ def select(jobs, design=None, country=None, variant=None, size=None):
 
 
 def markup(text):
-    """HTML for a headline: escaped, with *words* as <em>. The template styles <em>."""
+    """HTML for a headline or fine print: escaped, with *words* as <em>. The template styles <em>."""
     return re.sub(r"\*([^*]+)\*", r"<em>\1</em>", html.escape(text))

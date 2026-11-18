@@ -62,6 +62,18 @@ cats-band:
   it looks (and whether to upper-case, recolour or ignore it).
 - `designs` is reserved; do not name a design that.
 - YAML aliases (`&copy` / `*copy`) let several designs share one block of copy.
+- A variant can instead be a map with a `headline` and a `fine_print`: small
+  type, such as an incentive's conditions, for a design with a `#fine-print`
+  slot. A variant with fine print fails on a design without the slot.
+
+```yaml
+cats-band-ar:
+  MA:
+    dar-amount: "جاوب على سونداج قصير وخود *رشارج ديال 10 دراهم*."
+    dar-amount-terms:
+      headline: "جاوب على سونداج قصير وخود *رشارج ديال 10 دراهم*."
+      fine_print: "إلا كنتي مناسب للاستطلاع وكملتيه، غادي توصلك تعبئة ديال 10 دراهم."
+```
 
 ## Writing a template
 
@@ -73,6 +85,13 @@ One self-contained HTML file per design per size, named `<W>x<H>.html`.
   `data-min-contrast` (default 3) and `data-collide-margin` (px, default 4),
   optional.
 - Inside `#headline`, one element whose only content is `{{text}}`.
+- `#fine-print`, optional: the box for a variant's `fine_print`, holding one
+  element whose only content is `{{fine_print}}`. It is set at the template's
+  size, never shrunk, and the creative fails if the text overflows the box.
+  When a variant has no fine print the box is removed, so adding the slot to a
+  shared design changes nothing for the studies that do not fill it. When it is
+  filled, `#canvas` gets the class `has-fine-print`, for any layout that has to
+  make room.
 - `#figure`, optional: the cut-out the headline must not touch. As an
   `<img id="figure" src="…">` it is also the slot `preview` fills with a drawing.
 - `#scene`, optional: `<img id="scene" src="…">`, a photo. It fails when drawn more
