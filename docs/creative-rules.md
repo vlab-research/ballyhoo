@@ -1,6 +1,6 @@
 # Creative rules
 
-What the imagery in vlab recruitment ads should and should not show. These rules
+What the imagery and copy in vlab recruitment ads should and should not show. These rules
 are for the people and agents who write briefs, search queries and prompts, and
 who rate candidates. `README.md` covers how ballyhoo enforces what it can;
 `docs/design.md` covers why the tool works the way it does.
@@ -203,6 +203,89 @@ A variant has the survey alone, "floating in space, abstractly".
 suggest showing people the audience sees as like themselves, rather than models.
 The animal and survey prompts suggest light, friendly images of the survey itself.
 Confirm both before relying on them.
+
+## Copy and Meta review
+
+Meta's ad review reads the image text, the primary text and the WhatsApp or
+Messenger welcome message together, and an automated reviewer reads them first.
+Write for that reader as well as for the respondent.
+
+### An incentive comes with its conditions, on the image and in the primary text
+
+Say who qualifies, what they have to do, and when the payment arrives. The image
+keeps a short headline and carries the conditions in a fine-print strip (a
+variant's `fine_print`, in a design with a `#fine-print` slot); the primary text
+says the same at more length.
+
+**Why:** Meta disapproved the SSO Morocco ads (November 2026) under *Fraud, Scams
+and Deceptive Practices* for "a guaranteed reward without explaining how it
+works". Meta allows a payment for a survey when the conditions are clear.
+
+### Take the conditions from the consent, word for word where possible
+
+The consent already states the eligibility, the duration and the condition for
+payment ("If you qualify and complete this survey, you will get…"), and it has
+certified translations. Reuse that sentence rather than writing a new one.
+
+**Why:** the ad cannot then promise more than the consent, and the IRB reviews
+less new text. Promise no delivery time the payment system cannot keep: failed
+payments wait until someone fixes them, so say "at the end of the survey", not
+"within 24 hours".
+
+### Address people living in the country, never a nationality
+
+"People living in Morocco aged 18 or older", not "Moroccans" or "Moroccan
+citizens", even where the screener checks citizenship. The screener and "if you
+qualify" carry the rest of the eligibility.
+
+**Why:** the author's rule, for every study: a nationality can read as an ethnic
+group.
+
+### Do not name the institution running the study
+
+Say "a research survey" or "a research study". The institution belongs in the
+consent form, not in the ad, the fine print or the welcome message.
+
+**Why:** the author's rule, especially for a Western institution recruiting in a
+non-Western country, where the name can change who answers and how. The ad
+still shows who is advertising: the Facebook Page it runs from.
+
+### Call it a payment, never a prize or a reward
+
+No *free*, *win*, *gift*, *voucher* or *prize*; no currency symbol; no word that
+reads as account balance or credit (*saldo*, *crédito*, *رصيد*). Prefer the
+amount and the form of the payment ("a 10-dirham top-up", "KES 100 airtime").
+
+**Why:** Meta disapproved the LAC Healthy Diets ads (September 2026) for "$",
+*ganá*, *saldo* and *crédito* as financial or commercial. Columbia's IRB asked in
+October 2026 for "compensation" or "payment" instead of "prize" or "reward".
+
+### The amount is not the big type
+
+When the amount is on the image, prefer it in the fine print, with the headline
+naming the survey or the airtime without a number.
+
+**Why:** Columbia's IRB asked in 2024 for the dollar amounts in smaller,
+non-bold type, and a large amount is what reads as a payout offer to Meta.
+Whether the headline carries the amount is still the author's call per study.
+
+### Name no politics, government or elections
+
+Even when the survey asks about them.
+
+**Why:** Meta classes such ads as social-issue ads, which need an authorised
+advertiser.
+
+### The welcome message states the topic and carries no money words
+
+**Why:** Meta reviews it with the ad, and an IRB precedent (Kenya) asked that the
+first message state the survey's topic, not only the payment.
+
+### Upload a no-amount rung of every creative as a template
+
+So a disapproval can be answered without a new upload. It is not a fix on its
+own: a promise of airtime without conditions is still a promise without
+conditions.
 
 ## Already enforced by ballyhoo
 
